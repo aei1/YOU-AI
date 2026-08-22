@@ -78,14 +78,7 @@
     background-image:radial-gradient(circle, var(--cover-ring) 0 4px, transparent 5px);
     background-size:34px 100%; background-position:center; background-repeat:repeat-x;
   }
-  .app-header{ position:relative; background:linear-gradient(180deg,var(--cover),#1E2E25); padding:22px 30px 16px; }
-  .settings-btn{
-    position:absolute; top:14px; right:14px; width:30px; height:30px; padding:0;
-    display:flex; align-items:center; justify-content:center;
-    background:rgba(246,241,228,.1); border:1.5px solid rgba(246,241,228,.35);
-    border-radius:50%; color:var(--cover-text); font-size:15px; line-height:1; cursor:pointer;
-  }
-  .settings-btn:active{ transform:scale(.92); }
+  .app-header{ background:linear-gradient(180deg,var(--cover),#1E2E25); padding:22px 30px 16px; }
   .brand{ font-family:var(--font-display); font-size:32px; line-height:1; margin:0 0 6px; color:var(--cover-text); }
   .sub{margin:0 0 6px; color:rgba(246,241,228,.78); font-size:13.5px;}
   .date-line{margin:0; font-family:var(--font-mono); font-size:11px; letter-spacing:.4px; color:rgba(246,241,228,.62);}
@@ -349,25 +342,7 @@
   #gate input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
   #gate .btn{width:100%; margin-top:10px;}
   #gate .gate-error{color:var(--red-pen); font-size:13px; margin-top:8px; min-height:16px;}
-  #gate .gate-face-btn{display:flex; align-items:center; justify-content:center; gap:8px;}
-  #gate .gate-divider{display:flex; align-items:center; gap:10px; margin:16px 0; color:var(--ink-faint); font-size:12px;}
-  #gate .gate-divider::before, #gate .gate-divider::after{content:''; flex:1; height:1px; background:var(--paper-line);}
   body.locked .app, body.locked .toast{display:none;}
-
-  #settings-modal{
-    position:fixed; inset:0; z-index:210; background:rgba(23,35,28,.72);
-    display:flex; align-items:center; justify-content:center; padding:20px;
-  }
-  #settings-modal.hidden{display:none;}
-  #settings-modal .settings-card{
-    width:100%; max-width:340px; background:var(--paper); border-radius:14px;
-    padding:22px; box-shadow:0 24px 60px -20px rgba(0,0,0,.6);
-  }
-  #settings-modal h2{font-family:var(--font-display); font-size:24px; margin:0 0 16px; color:var(--ink);}
-  #settings-modal .settings-row{margin-bottom:18px;}
-  #settings-modal .settings-label{font-weight:600; font-size:14.5px; color:var(--ink); margin:0 0 4px;}
-  #settings-modal .settings-hint{font-size:12.5px; color:var(--ink-soft); margin:0 0 10px; line-height:1.5;}
-  #settings-modal .btn{width:100%;}
 
   @media (max-width:640px){
     body{ padding:0; align-items:stretch; }
@@ -396,8 +371,6 @@
     <div class="gate-card">
       <img src="logo.jpg" alt="" class="gate-logo">
       <h2>ใส่รหัสผ่าน</h2>
-      <button type="button" class="btn btn-primary gate-face-btn hidden" id="gate-face-btn" onclick="attemptFaceUnlock()">📷 สแกนหน้า / ลายนิ้วมือ</button>
-      <div class="gate-divider hidden" id="gate-divider">หรือ</div>
       <form id="gate-form">
         <input type="password" id="gate-input" autocomplete="current-password" autofocus>
         <button type="submit" class="btn btn-primary">เข้าดู</button>
@@ -405,21 +378,9 @@
       </form>
     </div>
   </div>
-  <div id="settings-modal" class="hidden">
-    <div class="settings-card">
-      <h2>ตั้งค่า</h2>
-      <div class="settings-row">
-        <p class="settings-label">ปลดล็อกด้วยสแกนหน้า/ลายนิ้วมือ</p>
-        <p class="settings-hint" id="face-unlock-hint"></p>
-        <button type="button" class="btn btn-primary" id="face-unlock-toggle-btn" onclick="toggleFaceUnlock()"></button>
-      </div>
-      <button type="button" class="btn btn-ghost" onclick="closeSettings()">ปิด</button>
-    </div>
-  </div>
   <div class="app">
     <div class="ring-strip"></div>
     <header class="app-header">
-      <button type="button" class="settings-btn" onclick="openSettings()" aria-label="ตั้งค่า">⚙</button>
       <h1 class="brand">เว็บเรียนของฉัน</h1>
       <p class="sub">ศูนย์รวมบทเรียนและแบบทดสอบภาษาอังกฤษ-จีนของคุณ</p>
       <p class="date-line" id="date-line"></p>
@@ -442,128 +403,22 @@
 
 <script>
 /* ---------------- Password gate ---------------- */
-// Change this to your own password.
-var PASSWORD = "2004";
-var SESSION_KEY = "lang-notes-unlocked";
-var FACE_CRED_KEY = "faceUnlockCredentialId";
-
-function b64encode(buf){
-  var bytes = new Uint8Array(buf), bin = '';
-  for(var i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-function b64decode(str){
-  str = str.replace(/-/g,'+').replace(/_/g,'/');
-  while(str.length % 4) str += '=';
-  var bin = atob(str), buf = new Uint8Array(bin.length);
-  for(var i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
-  return buf.buffer;
-}
-function randomBytes(len){ var a = new Uint8Array(len); crypto.getRandomValues(a); return a; }
-
-function faceUnlockSupported(){ return !!(window.PublicKeyCredential && navigator.credentials); }
-function isFaceUnlockEnabled(){ return !!localStorage.getItem(FACE_CRED_KEY); }
-
-function unlockApp(){
-  sessionStorage.setItem(SESSION_KEY, "yes");
-  document.body.classList.remove("locked");
-  document.getElementById("gate").classList.add("hidden");
-}
-
-function registerFaceUnlock(){
-  if(!faceUnlockSupported()){
-    alert("อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการสแกนหน้า/ลายนิ้วมือ");
-    return;
-  }
-  navigator.credentials.create({
-    publicKey:{
-      challenge: randomBytes(32),
-      rp:{ name:"เว็บเรียนของฉัน" },
-      user:{ id: randomBytes(16), name:"user", displayName:"ผู้ใช้" },
-      pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
-      authenticatorSelection:{ authenticatorAttachment:"platform", userVerification:"required" },
-      timeout:60000,
-      attestation:"none"
-    }
-  }).then(function(cred){
-    localStorage.setItem(FACE_CRED_KEY, b64encode(cred.rawId));
-    renderSettings();
-    showToast("เปิดใช้งานสแกนหน้า/ลายนิ้วมือแล้ว");
-  }).catch(function(err){
-    alert("ตั้งค่าไม่สำเร็จ: " + (err && err.message ? err.message : "ลองใหม่อีกครั้ง"));
-  });
-}
-
-function disableFaceUnlock(){
-  localStorage.removeItem(FACE_CRED_KEY);
-  renderSettings();
-  showToast("ปิดใช้งานสแกนหน้า/ลายนิ้วมือแล้ว");
-}
-
-function toggleFaceUnlock(){
-  if(isFaceUnlockEnabled()) disableFaceUnlock(); else registerFaceUnlock();
-}
-
-function attemptFaceUnlock(){
-  var credId = localStorage.getItem(FACE_CRED_KEY);
-  if(!credId) return;
-  navigator.credentials.get({
-    publicKey:{
-      challenge: randomBytes(32),
-      allowCredentials:[{ id: b64decode(credId), type:"public-key", transports:["internal"] }],
-      userVerification:"required",
-      timeout:60000
-    }
-  }).then(function(){
-    unlockApp();
-  }).catch(function(){
-    document.getElementById("gate-error").textContent = "สแกนไม่สำเร็จ ลองใหม่หรือใช้รหัสผ่านแทน";
-  });
-}
-
-function openSettings(){
-  renderSettings();
-  document.getElementById("settings-modal").classList.remove("hidden");
-}
-function closeSettings(){
-  document.getElementById("settings-modal").classList.add("hidden");
-}
-function renderSettings(){
-  var hint = document.getElementById("face-unlock-hint");
-  var btn = document.getElementById("face-unlock-toggle-btn");
-  if(!faceUnlockSupported()){
-    hint.textContent = "อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับฟีเจอร์นี้";
-    btn.textContent = "ไม่รองรับ";
-    btn.className = "btn btn-ghost";
-    btn.disabled = true;
-    return;
-  }
-  btn.disabled = false;
-  if(isFaceUnlockEnabled()){
-    hint.textContent = "เปิดใช้งานอยู่บนอุปกรณ์นี้ ครั้งหน้าสามารถสแกนหน้า/ลายนิ้วมือแทนรหัสผ่านได้ (ใช้ได้เฉพาะอุปกรณ์นี้เครื่องเดียว)";
-    btn.textContent = "ปิดใช้งาน";
-    btn.className = "btn btn-ghost";
-  } else {
-    hint.textContent = "เปิดไว้เพื่อปลดล็อกด้วย Face ID/ลายนิ้วมือของอุปกรณ์นี้แทนการพิมพ์รหัสผ่าน (ใช้ได้เฉพาะอุปกรณ์นี้เครื่องเดียว)";
-    btn.textContent = "เปิดใช้งาน";
-    btn.className = "btn btn-primary";
-  }
-}
-
 (function(){
+  // Change this to your own password.
+  var PASSWORD = "2004";
+  var SESSION_KEY = "lang-notes-unlocked";
   if(sessionStorage.getItem(SESSION_KEY) === "yes"){
-    unlockApp();
+    document.body.classList.remove("locked");
+    document.getElementById("gate").classList.add("hidden");
     return;
-  }
-  if(isFaceUnlockEnabled() && faceUnlockSupported()){
-    document.getElementById("gate-face-btn").classList.remove("hidden");
-    document.getElementById("gate-divider").classList.remove("hidden");
   }
   document.getElementById("gate-form").addEventListener("submit", function(e){
     e.preventDefault();
     var value = document.getElementById("gate-input").value;
     if(value === PASSWORD){
-      unlockApp();
+      sessionStorage.setItem(SESSION_KEY, "yes");
+      document.body.classList.remove("locked");
+      document.getElementById("gate").classList.add("hidden");
     } else {
       document.getElementById("gate-error").textContent = "รหัสผ่านไม่ถูกต้อง";
     }
