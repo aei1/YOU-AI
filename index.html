@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>เว็บเรียนของฉัน</title>
+<link rel="icon" type="image/jpeg" href="logo.jpg">
+<link rel="apple-touch-icon" href="logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Charmonman:wght@400;700&family=Sarabun:wght@400;500;600;700&family=Chakra+Petch:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -77,6 +79,7 @@
     background-size:34px 100%; background-position:center; background-repeat:repeat-x;
   }
   .app-header{ background:linear-gradient(180deg,var(--cover),#1E2E25); padding:22px 30px 16px; }
+  .brand-logo{ width:44px; height:44px; border-radius:50%; object-fit:cover; margin:0 0 10px; box-shadow:0 2px 8px rgba(0,0,0,.4); }
   .brand{ font-family:var(--font-display); font-size:32px; line-height:1; margin:0 0 6px; color:var(--cover-text); }
   .sub{margin:0 0 6px; color:rgba(246,241,228,.78); font-size:13.5px;}
   .date-line{margin:0; font-family:var(--font-mono); font-size:11px; letter-spacing:.4px; color:rgba(246,241,228,.62);}
@@ -330,6 +333,7 @@
     width:100%; max-width:320px; background:var(--paper); border-radius:14px;
     padding:24px 22px; box-shadow:0 24px 60px -20px rgba(0,0,0,.6);
   }
+  #gate .gate-logo{ width:64px; height:64px; border-radius:50%; object-fit:cover; margin:0 0 12px; box-shadow:0 4px 14px rgba(0,0,0,.5); }
   #gate h2{font-family:var(--font-display); font-size:26px; margin:0 0 14px; color:var(--ink);}
   #gate input{
     width:100%; font-family:var(--font-body); font-size:15px; padding:9px 11px;
@@ -365,6 +369,7 @@
 <body class="locked">
   <div id="gate">
     <div class="gate-card">
+      <img src="logo.jpg" alt="" class="gate-logo">
       <h2>ใส่รหัสผ่าน</h2>
       <form id="gate-form">
         <input type="password" id="gate-input" autocomplete="current-password" autofocus>
@@ -376,6 +381,7 @@
   <div class="app">
     <div class="ring-strip"></div>
     <header class="app-header">
+      <img src="logo.jpg" alt="" class="brand-logo">
       <h1 class="brand">เว็บเรียนของฉัน</h1>
       <p class="sub">ศูนย์รวมบทเรียนและแบบทดสอบภาษาอังกฤษ-จีนของคุณ</p>
       <p class="date-line" id="date-line"></p>
