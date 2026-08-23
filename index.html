@@ -83,11 +83,11 @@
   .sub{margin:0 0 6px; color:rgba(246,241,228,.78); font-size:13.5px;}
   .date-line{margin:0; font-family:var(--font-mono); font-size:11px; letter-spacing:.4px; color:rgba(246,241,228,.62);}
 
-  .tabbar{ background:var(--paper-shade); border-bottom:1.5px solid var(--paper-line); padding:0 30px; position:sticky; top:0; z-index:10; }
-  .tabbar-inner{position:relative; display:flex; gap:26px;}
+  .tabbar{ background:var(--paper-shade); border-bottom:1.5px solid var(--paper-line); padding:0 30px; position:sticky; top:0; z-index:10; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tabbar-inner{position:relative; display:flex; gap:26px; width:max-content; min-width:100%;}
   .tab-btn{
     background:none; border:none; cursor:pointer; font-family:var(--font-body); font-weight:600; font-size:14.5px;
-    padding:14px 2px 12px; color:var(--ink-soft); transition:color .15s ease;
+    padding:14px 2px 12px; color:var(--ink-soft); transition:color .15s ease; white-space:nowrap; flex:none;
   }
   .tab-btn:hover{color:var(--ink);}
   .tab-btn.active{color:var(--ink);}
@@ -390,6 +390,7 @@
         <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">หน้าหลัก</button>
         <button class="tab-btn" data-tab="notes" onclick="switchTab('notes')">บทเรียน</button>
         <button class="tab-btn" data-tab="quizzes" onclick="switchTab('quizzes')">แบบทดสอบ</button>
+        <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">โน้ต</button>
         <div class="tab-indicator" id="tab-indicator"></div>
       </div>
     </nav>
@@ -397,6 +398,7 @@
       <section id="view-home" class="view"><div class="loading">กำลังโหลดภาพรวม...</div></section>
       <section id="view-notes" class="view hidden"><div class="loading">กำลังโหลดบทเรียน...</div></section>
       <section id="view-quizzes" class="view hidden"><div class="loading">กำลังโหลดแบบทดสอบ...</div></section>
+      <section id="view-journal" class="view hidden"><div class="loading">กำลังโหลดโน้ต...</div></section>
     </main>
   </div>
   <div class="toast" id="toast"></div>
@@ -442,9 +444,13 @@ let notesSearch = '';
 let quizzesState = { mode:'list' };
 let quizzesFilter = 'all';
 let quizzesSearch = '';
+let journal = [];
+let journalState = { mode:'list' };
+let journalSearch = '';
 let draftNote = null, editingNoteId = null;
 let draftQuiz = null, editingQuizId = null;
-let noteFormSnapshot = null, quizFormSnapshot = null;
+let draftJournal = null, editingJournalId = null;
+let noteFormSnapshot = null, quizFormSnapshot = null, journalFormSnapshot = null;
 let flashState = null;
 let activeTabName = 'home';
 let historyReady = false, isRestoringHistory = false, lastPushedHistoryKey = null;
@@ -676,26 +682,30 @@ function fmtShortDate(iso){
 async function loadAll(){
   try{ const v = localStorage.getItem('notes'); notes = v ? JSON.parse(v) : null; }catch(e){ notes = null; }
   try{ const v = localStorage.getItem('quizzes'); quizzes = v ? JSON.parse(v) : null; }catch(e){ quizzes = null; }
-  if(notes === null || quizzes === null){
+  try{ const v = localStorage.getItem('journal'); journal = v ? JSON.parse(v) : null; }catch(e){ journal = null; }
+  if(notes === null || quizzes === null || journal === null){
     try{
       const res = await fetch('data.json', { cache:'no-store' });
       if(res.ok){
         const seed = await res.json();
         if(notes === null) notes = Array.isArray(seed.notes) ? seed.notes : [];
         if(quizzes === null) quizzes = Array.isArray(seed.quizzes) ? seed.quizzes : [];
+        if(journal === null) journal = Array.isArray(seed.journal) ? seed.journal : [];
         localStorage.setItem('notes', JSON.stringify(notes));
         localStorage.setItem('quizzes', JSON.stringify(quizzes));
+        localStorage.setItem('journal', JSON.stringify(journal));
       }
     }catch(e){ /* data.json not reachable (e.g. opened as a local file) — fall through */ }
   }
   if(notes === null) notes = [];
   if(quizzes === null) quizzes = [];
-  renderHome(); renderNotes(); renderQuizzes();
+  if(journal === null) journal = [];
+  renderHome(); renderNotes(); renderQuizzes(); renderJournal();
   requestAnimationFrame(updateTabIndicator);
   if(document.fonts && document.fonts.ready){ document.fonts.ready.then(updateTabIndicator); }
   historyReady = true;
   lastPushedHistoryKey = historyKey();
-  history.replaceState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, lastResult }, '');
+  history.replaceState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, journalState:{...journalState}, lastResult }, '');
 }
 function saveNotes(){
   try{ localStorage.setItem('notes', JSON.stringify(notes)); }
@@ -707,6 +717,10 @@ function saveQuizzes(){
   catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
   renderHome();
 }
+function saveJournal(){
+  try{ localStorage.setItem('journal', JSON.stringify(journal)); }
+  catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
+}
 
 /* ---------------- Tabs ---------------- */
 function confirmLeaveIfDirty(){
@@ -716,17 +730,20 @@ function confirmLeaveIfDirty(){
   if(quizzesState.mode==='form' && quizFormSnapshot!==null && JSON.stringify(draftQuiz)!==quizFormSnapshot){
     return confirm('แบบทดสอบนี้ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม?');
   }
+  if(journalState.mode==='form' && journalFormSnapshot!==null && JSON.stringify(draftJournal)!==journalFormSnapshot){
+    return confirm('โน้ตนี้ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม?');
+  }
   return true;
 }
 function historyKey(){
-  return [activeTabName, notesState.mode, notesState.id||'', quizzesState.mode, quizzesState.id||''].join('|');
+  return [activeTabName, notesState.mode, notesState.id||'', quizzesState.mode, quizzesState.id||'', journalState.mode, journalState.id||''].join('|');
 }
 function pushHistoryState(){
   if(isRestoringHistory || !historyReady) return;
   const key = historyKey();
   if(key === lastPushedHistoryKey) return;
   lastPushedHistoryKey = key;
-  history.pushState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, lastResult }, '');
+  history.pushState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, journalState:{...journalState}, lastResult }, '');
 }
 window.addEventListener('popstate', (e)=>{
   if(!e.state) return;
@@ -734,14 +751,16 @@ window.addEventListener('popstate', (e)=>{
   activeTabName = e.state.tab || 'home';
   notesState = e.state.notesState || {mode:'list'};
   quizzesState = e.state.quizzesState || {mode:'list'};
+  journalState = e.state.journalState || {mode:'list'};
   if(quizzesState.mode==='result' && e.state.lastResult) lastResult = e.state.lastResult;
   lastPushedHistoryKey = historyKey();
   document.getElementById('view-home').classList.toggle('hidden', activeTabName!=='home');
   document.getElementById('view-notes').classList.toggle('hidden', activeTabName!=='notes');
   document.getElementById('view-quizzes').classList.toggle('hidden', activeTabName!=='quizzes');
+  document.getElementById('view-journal').classList.toggle('hidden', activeTabName!=='journal');
   document.querySelectorAll('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.tab===activeTabName));
   updateTabIndicator();
-  renderHome(); renderNotes(); renderQuizzes();
+  renderHome(); renderNotes(); renderQuizzes(); renderJournal();
   isRestoringHistory = false;
 });
 function switchTab(tab){
@@ -750,6 +769,7 @@ function switchTab(tab){
   document.getElementById('view-home').classList.toggle('hidden', tab!=='home');
   document.getElementById('view-notes').classList.toggle('hidden', tab!=='notes');
   document.getElementById('view-quizzes').classList.toggle('hidden', tab!=='quizzes');
+  document.getElementById('view-journal').classList.toggle('hidden', tab!=='journal');
   document.querySelectorAll('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
   updateTabIndicator();
   pushHistoryState();
@@ -1461,6 +1481,171 @@ function renderQuizResult(){
           </div>`).join('')}
       </div>
     </div>`;
+}
+
+/* =========================================================
+   JOURNAL (general notes: game guides, recipes, ideas, etc.)
+   ========================================================= */
+function newDraftJournal(){ return { title:'', content:'', tags:[] }; }
+
+function openNewJournalForm(){
+  draftJournal = newDraftJournal();
+  editingJournalId = null; journalState = {mode:'form'};
+  journalFormSnapshot = JSON.stringify(draftJournal);
+  renderJournal();
+}
+function openEditJournalForm(id){
+  const j = journal.find(x=>x.id===id); if(!j) return;
+  draftJournal = { title:j.title, content:j.content||'', tags: itemTags(j).slice() };
+  editingJournalId = id; journalState = {mode:'form'};
+  journalFormSnapshot = JSON.stringify(draftJournal);
+  renderJournal();
+}
+function cancelJournalForm(){ journalFormSnapshot = null; journalState = editingJournalId ? {mode:'detail', id:editingJournalId} : {mode:'list'}; renderJournal(); }
+function setDraftJournalTags(value){ draftJournal.tags = parseTags(value); }
+
+function renderJournalForm(){
+  const el = document.getElementById('view-journal');
+  el.innerHTML = `
+    <button class="back-link" onclick="cancelJournalForm()">‹ กลับ</button>
+    <div class="form-block">
+      <div class="field">
+        <label>หัวข้อ</label>
+        <input type="text" id="journal-title-input" placeholder="เช่น สูตรตี Boss, ไอเดียใหม่" value="${escapeHtml(draftJournal.title)}" oninput="draftJournal.title=this.value">
+      </div>
+      <div class="field">
+        <label>แท็ก / หมวดหมู่ (คั่นด้วยเว้นวรรคหรือจุลภาค)</label>
+        <input type="text" id="tag-input-journal" placeholder="เช่น เกม สูตรอาหาร ไอเดีย"
+               value="${escapeHtml((draftJournal.tags||[]).join(' '))}"
+               oninput="setDraftJournalTags(this.value)">
+      </div>
+      <div class="field">
+        <label>เนื้อหา</label>
+        <textarea id="journal-content-input" placeholder="เขียนโน้ตของคุณที่นี่ เช่น # หัวข้อใหญ่ ## หัวข้อย่อย แล้วตามด้วยเนื้อหา" oninput="draftJournal.content=this.value">${escapeHtml(draftJournal.content)}</textarea>
+      </div>
+    </div>
+    <div class="row-actions">
+      <button class="btn btn-primary" onclick="saveJournalForm()">บันทึกไว้</button>
+      <button class="btn btn-ghost" onclick="cancelJournalForm()">ยกเลิก</button>
+    </div>`;
+}
+
+function saveJournalForm(){
+  const title = (draftJournal.title||'').trim() || 'ไม่มีหัวข้อ';
+  if(!draftJournal.content.trim()){ showToast('กรุณาใส่เนื้อหาก่อนบันทึก'); return; }
+  const tags = parseTags((draftJournal.tags||[]).join(' '));
+  let savedId;
+  if(editingJournalId){
+    const j = journal.find(x=>x.id===editingJournalId);
+    Object.assign(j, { title, content:draftJournal.content, tags, updatedAt:new Date().toISOString() });
+    savedId = editingJournalId;
+  }else{
+    savedId = uid();
+    journal.push({ id:savedId, title, content:draftJournal.content, tags, updatedAt:new Date().toISOString() });
+  }
+  saveJournal();
+  journalFormSnapshot = null;
+  editingJournalId = null;
+  journalState = { mode:'detail', id: savedId };
+  renderJournal();
+  showToast('บันทึกโน้ตแล้ว');
+}
+
+function confirmDeleteJournal(id, btnEl){
+  if(btnEl.dataset.confirm !== '1'){
+    btnEl.dataset.confirm = '1'; btnEl.textContent = 'ยืนยันการลบ?';
+    setTimeout(()=>{ if(btnEl.isConnected){ btnEl.dataset.confirm=''; btnEl.textContent='ลบโน้ตนี้'; } }, 3000);
+    return;
+  }
+  const idx = journal.findIndex(j=>j.id===id);
+  if(idx===-1) return;
+  const removed = journal[idx];
+  journal.splice(idx,1);
+  saveJournal();
+  journalState = {mode:'list'};
+  renderJournal();
+  showToast('ลบโน้ตแล้ว', ()=>{
+    journal.splice(idx,0,removed);
+    saveJournal();
+    journalState = {mode:'detail', id};
+    renderJournal();
+  });
+}
+
+function journalMatchesSearch(j, q){
+  const { tags, text } = splitQuery(q);
+  if(tags.length && !tags.every(k=> hasTag(j, k))) return false;
+  if(!text) return true;
+  if((j.title||'').toLowerCase().includes(text)) return true;
+  if(itemTags(j).some(t=> normTag(t).includes(text))) return true;
+  return (j.content||'').toLowerCase().includes(text);
+}
+function setSearchJournal(value){
+  journalSearch = value;
+  renderJournal();
+  const input = document.getElementById('journal-search-input');
+  if(input){ input.focus(); const p = input.value.length; input.setSelectionRange(p,p); }
+}
+function filterJournalByTag(key){
+  journalSearch = '#' + key;
+  journalState = {mode:'list'};
+  renderJournal();
+  switchTab('journal');
+}
+
+function renderJournal(){ renderJournalImpl(); pushHistoryState(); }
+function renderJournalImpl(){
+  const el = document.getElementById('view-journal');
+
+  if(journalState.mode === 'form'){ renderJournalForm(); return; }
+
+  if(journalState.mode === 'detail'){
+    const j = journal.find(x=>x.id===journalState.id);
+    if(!j){ journalState={mode:'list'}; renderJournal(); return; }
+    el.innerHTML = `
+      <button class="back-link" onclick="journalState={mode:'list'}; renderJournal();">‹ กลับ</button>
+      <h2 class="detail-title">${escapeHtml(j.title)}</h2>
+      <p class="detail-meta">แก้ไขล่าสุด ${fmtShortDate(j.updatedAt)}</p>
+      ${tagChipsHtml(itemTags(j), 'filterJournalByTag')}
+      <div class="detail-content">${mdToHtml(j.content)}</div>
+      <div class="row-actions" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="openEditJournalForm('${j.id}')">แก้ไข</button>
+        <button class="btn btn-danger" id="del-journal-btn" onclick="confirmDeleteJournal('${j.id}', this)">ลบโน้ตนี้</button>
+      </div>`;
+    return;
+  }
+
+  if(journal.length === 0){
+    el.innerHTML = `
+      <div class="empty">
+        <div class="doodle">🗒️</div>
+        <p>ยังไม่มีโน้ตในห้องนี้ เก็บโน้ตเกม สูตรอาหาร หรือไอเดียต่างๆ ไว้ที่นี่ได้เลย</p>
+        <button class="btn btn-primary" onclick="openNewJournalForm()">+ เพิ่มโน้ตแรก</button>
+      </div>`;
+    return;
+  }
+  const filtered = journal.filter(j=> journalMatchesSearch(j, journalSearch));
+  const sorted = [...filtered].sort((a,b)=> new Date(b.updatedAt) - new Date(a.updatedAt));
+  el.innerHTML = `
+    <div class="list-head">
+      <h2>โน้ตทั้งหมด (${journal.length})</h2>
+      <button class="btn btn-primary btn-sm" onclick="openNewJournalForm()">+ เพิ่มโน้ตใหม่</button>
+    </div>
+    <input type="text" class="search-input" id="journal-search-input" placeholder="ค้นหาโน้ต..." value="${escapeHtml(journalSearch)}" oninput="setSearchJournal(this.value)">
+    ${sorted.length===0 ? `<div class="empty"><p>ไม่พบโน้ตที่ตรงกับที่ค้นหา</p></div>` : `
+    <div class="cards">
+      ${sorted.map(j=>{
+        const snippet = stripMd(j.content).slice(0,80);
+        return `
+        <div class="card" onclick="journalState={mode:'detail', id:'${j.id}'}; renderJournal();">
+          <div class="card-top">
+            <p class="card-title">${escapeHtml(j.title || 'ไม่มีหัวข้อ')}</p>
+          </div>
+          <p class="card-snippet">${escapeHtml(snippet)}</p>
+          <p class="card-meta">${fmtShortDate(j.updatedAt)}${itemTags(j).length ? ' · ' + itemTags(j).map(t=>'#'+escapeHtml(String(t).replace(/^#+/,''))).join(' ') : ''}</p>
+        </div>`;
+      }).join('')}
+    </div>`}`;
 }
 
 /* ---------------- Init ---------------- */
