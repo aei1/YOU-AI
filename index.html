@@ -164,6 +164,36 @@
   .section-sub{font-size:12.5px; color:var(--ink-soft); margin:0 0 18px;}
   .mini-label{font-size:13px; font-weight:600; color:var(--ink-soft); margin:20px 0 10px;}
 
+  /* Points wallet */
+  .balance-card{
+    background:linear-gradient(135deg,var(--cover),#1E2E25); border-radius:12px;
+    padding:18px 20px; margin-bottom:18px; text-align:center;
+    box-shadow:0 8px 20px -12px rgba(0,0,0,.55);
+  }
+  .balance-label{font-size:12.5px; color:rgba(246,241,228,.75); margin:0 0 4px;}
+  .balance-value{font-family:var(--font-mono); font-size:34px; font-weight:600; line-height:1.1; color:var(--highlighter); margin:0;}
+  .balance-unit{font-size:14px; color:rgba(246,241,228,.75); margin-left:4px;}
+  .balance-sub{font-size:12px; color:rgba(246,241,228,.6); margin:6px 0 0;}
+  .points-badge{
+    font-family:var(--font-mono); font-size:12.5px; font-weight:600; border-radius:20px;
+    padding:2px 9px; white-space:nowrap;
+  }
+  .points-badge.plus{ background:rgba(63,107,79,.16); color:var(--green-check); }
+  .points-badge.minus{ background:rgba(178,58,46,.14); color:var(--red-pen); }
+  .price-tag{font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--highlighter);}
+  .item-card-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px;}
+  .kind-chip{
+    display:inline-block; font-size:11.5px; border-radius:20px; padding:2px 9px; margin-left:6px;
+    background:var(--paper-shade); border:1px solid var(--paper-line); color:var(--ink-soft);
+  }
+  .ledger-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:10px 0; border-bottom:1px solid var(--paper-line);
+  }
+  .ledger-row:last-child{border-bottom:none;}
+  .ledger-reason{font-size:14px; color:var(--ink); margin:0;}
+  .ledger-time{font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); margin:2px 0 0;}
+
   .list-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap;}
   .list-head h2{font-size:19px; margin:0; color:var(--ink);}
   .cards{display:flex; flex-direction:column; gap:10px;}
@@ -415,6 +445,8 @@
         <button class="tab-btn" data-tab="notes" onclick="switchTab('notes')">บทเรียน</button>
         <button class="tab-btn" data-tab="quizzes" onclick="switchTab('quizzes')">แบบทดสอบ</button>
         <button class="tab-btn" data-tab="journal" onclick="switchTab('journal')">โน้ต</button>
+        <button class="tab-btn" data-tab="notebook" onclick="switchTab('notebook')">โน้ตบุ๊ก</button>
+        <button class="tab-btn" data-tab="market" onclick="switchTab('market')">มาร์เก็ต</button>
         <div class="tab-indicator" id="tab-indicator"></div>
       </div>
     </nav>
@@ -423,6 +455,8 @@
       <section id="view-notes" class="view hidden"><div class="loading">กำลังโหลดบทเรียน...</div></section>
       <section id="view-quizzes" class="view hidden"><div class="loading">กำลังโหลดแบบทดสอบ...</div></section>
       <section id="view-journal" class="view hidden"><div class="loading">กำลังโหลดโน้ต...</div></section>
+      <section id="view-notebook" class="view hidden"><div class="loading">กำลังโหลดกิจกรรม...</div></section>
+      <section id="view-market" class="view hidden"><div class="loading">กำลังโหลดมาร์เก็ต...</div></section>
     </main>
   </div>
   <div class="toast" id="toast"></div>
@@ -535,6 +569,12 @@ let quizzesSearch = '';
 let journal = [];
 let journalState = { mode:'list' };
 let journalSearch = '';
+let wallet = null;                     // points wallet — see WALLET section
+let notebookState = { mode:'list' };
+let marketState = { mode:'list' };
+let draftActivity = null, editingActivityId = null;
+let draftItem = null, editingItemId = null;
+let notebookFormSnapshot = null, marketFormSnapshot = null;
 let draftNote = null, editingNoteId = null;
 let draftQuiz = null, editingQuizId = null;
 let draftJournal = null, editingJournalId = null;
@@ -771,7 +811,8 @@ async function loadAll(){
   try{ const v = localStorage.getItem('notes'); notes = v ? JSON.parse(v) : null; }catch(e){ notes = null; }
   try{ const v = localStorage.getItem('quizzes'); quizzes = v ? JSON.parse(v) : null; }catch(e){ quizzes = null; }
   try{ const v = localStorage.getItem('journal'); journal = v ? JSON.parse(v) : null; }catch(e){ journal = null; }
-  if(notes === null || quizzes === null || journal === null){
+  try{ const v = localStorage.getItem('pointsWallet'); wallet = v ? normalizeWallet(JSON.parse(v)) : null; }catch(e){ wallet = null; }
+  if(notes === null || quizzes === null || journal === null || wallet === null){
     try{
       const res = await fetch('data.json', { cache:'no-store' });
       if(res.ok){
@@ -779,21 +820,24 @@ async function loadAll(){
         if(notes === null) notes = Array.isArray(seed.notes) ? seed.notes : [];
         if(quizzes === null) quizzes = Array.isArray(seed.quizzes) ? seed.quizzes : [];
         if(journal === null) journal = Array.isArray(seed.journal) ? seed.journal : [];
+        if(wallet === null) wallet = normalizeWallet(seed.pointsWallet);
         localStorage.setItem('notes', JSON.stringify(notes));
         localStorage.setItem('quizzes', JSON.stringify(quizzes));
         localStorage.setItem('journal', JSON.stringify(journal));
+        localStorage.setItem('pointsWallet', JSON.stringify(wallet));
       }
     }catch(e){ /* data.json not reachable (e.g. opened as a local file) — fall through */ }
   }
   if(notes === null) notes = [];
   if(quizzes === null) quizzes = [];
   if(journal === null) journal = [];
-  renderHome(); renderNotes(); renderQuizzes(); renderJournal();
+  if(wallet === null) wallet = emptyWallet();
+  renderAll();
   requestAnimationFrame(updateTabIndicator);
   if(document.fonts && document.fonts.ready){ document.fonts.ready.then(updateTabIndicator); }
   historyReady = true;
   lastPushedHistoryKey = historyKey();
-  history.replaceState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, journalState:{...journalState}, lastResult }, '');
+  history.replaceState(historySnapshot(), '');
 }
 function saveNotes(){
   try{ localStorage.setItem('notes', JSON.stringify(notes)); }
@@ -810,6 +854,52 @@ function saveJournal(){
   catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
 }
 
+/* =========================================================
+   POINTS WALLET
+   One shared balance behind the notebook (earn) and the market
+   (spend). Every change goes through addPoints/spendPoints so the
+   ledger stays the complete history of how the balance got here.
+   ========================================================= */
+function emptyWallet(){
+  return { balance:0, ledger:[], activities:[], marketItems:[], redemptions:[], lastModifiedAt:new Date().toISOString() };
+}
+function normalizeWallet(w){
+  const base = emptyWallet();
+  if(!w || typeof w !== 'object') return base;
+  return {
+    balance: Number.isFinite(w.balance) ? w.balance : 0,
+    ledger: Array.isArray(w.ledger) ? w.ledger : [],
+    activities: Array.isArray(w.activities) ? w.activities : [],
+    marketItems: Array.isArray(w.marketItems) ? w.marketItems : [],
+    redemptions: Array.isArray(w.redemptions) ? w.redemptions : [],
+    lastModifiedAt: w.lastModifiedAt || base.lastModifiedAt
+  };
+}
+function saveWallet(){
+  wallet.lastModifiedAt = new Date().toISOString();
+  try{ localStorage.setItem('pointsWallet', JSON.stringify(wallet)); }
+  catch(e){ showToast('บันทึกคะแนนไม่สำเร็จ ลองอีกครั้ง'); }
+}
+function addPoints(amount, reason, source){
+  const amt = Math.max(0, Math.round(Number(amount) || 0));
+  if(!amt) return 0;
+  wallet.balance += amt;
+  wallet.ledger.push({ id:uid(), timestamp:new Date().toISOString(), amount:amt, reason:reason||'', source:source||'notebook' });
+  saveWallet();
+  return amt;
+}
+/* Returns false (and changes nothing) when the balance is too low. */
+function spendPoints(amount, reason, source){
+  const amt = Math.max(0, Math.round(Number(amount) || 0));
+  if(!amt) return false;
+  if(wallet.balance < amt) return false;
+  wallet.balance -= amt;
+  wallet.ledger.push({ id:uid(), timestamp:new Date().toISOString(), amount:-amt, reason:reason||'', source:source||'market' });
+  saveWallet();
+  return true;
+}
+function fmtPoints(n){ return (Number(n)||0).toLocaleString('th-TH'); }
+
 /* ---------------- Tabs ---------------- */
 function confirmLeaveIfDirty(){
   if(notesState.mode==='form' && noteFormSnapshot!==null && JSON.stringify(draftNote)!==noteFormSnapshot){
@@ -821,17 +911,35 @@ function confirmLeaveIfDirty(){
   if(journalState.mode==='form' && journalFormSnapshot!==null && JSON.stringify(draftJournal)!==journalFormSnapshot){
     return confirm('โน้ตนี้ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม?');
   }
+  if(notebookState.mode==='form' && notebookFormSnapshot!==null && JSON.stringify(draftActivity)!==notebookFormSnapshot){
+    return confirm('กิจกรรมนี้ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม?');
+  }
+  if(marketState.mode==='form' && marketFormSnapshot!==null && JSON.stringify(draftItem)!==marketFormSnapshot){
+    return confirm('ไอเทมนี้ยังไม่ได้บันทึก ออกจากหน้านี้เลยไหม?');
+  }
   return true;
 }
+const TABS = ['home','notes','quizzes','journal','notebook','market'];
+function showViewsFor(tab){
+  TABS.forEach(t=> document.getElementById('view-'+t).classList.toggle('hidden', tab!==t));
+  document.querySelectorAll('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+}
+function renderAll(){ renderHome(); renderNotes(); renderQuizzes(); renderJournal(); renderNotebook(); renderMarket(); }
 function historyKey(){
-  return [activeTabName, notesState.mode, notesState.id||'', quizzesState.mode, quizzesState.id||'', journalState.mode, journalState.id||''].join('|');
+  return [activeTabName, notesState.mode, notesState.id||'', quizzesState.mode, quizzesState.id||'',
+          journalState.mode, journalState.id||'', notebookState.mode, notebookState.id||'',
+          marketState.mode, marketState.id||''].join('|');
+}
+function historySnapshot(){
+  return { tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState},
+           journalState:{...journalState}, notebookState:{...notebookState}, marketState:{...marketState}, lastResult };
 }
 function pushHistoryState(){
   if(isRestoringHistory || !historyReady) return;
   const key = historyKey();
   if(key === lastPushedHistoryKey) return;
   lastPushedHistoryKey = key;
-  history.pushState({ tab:activeTabName, notesState:{...notesState}, quizzesState:{...quizzesState}, journalState:{...journalState}, lastResult }, '');
+  history.pushState(historySnapshot(), '');
 }
 window.addEventListener('popstate', (e)=>{
   if(!e.state) return;
@@ -840,25 +948,19 @@ window.addEventListener('popstate', (e)=>{
   notesState = e.state.notesState || {mode:'list'};
   quizzesState = e.state.quizzesState || {mode:'list'};
   journalState = e.state.journalState || {mode:'list'};
+  notebookState = e.state.notebookState || {mode:'list'};
+  marketState = e.state.marketState || {mode:'list'};
   if(quizzesState.mode==='result' && e.state.lastResult) lastResult = e.state.lastResult;
   lastPushedHistoryKey = historyKey();
-  document.getElementById('view-home').classList.toggle('hidden', activeTabName!=='home');
-  document.getElementById('view-notes').classList.toggle('hidden', activeTabName!=='notes');
-  document.getElementById('view-quizzes').classList.toggle('hidden', activeTabName!=='quizzes');
-  document.getElementById('view-journal').classList.toggle('hidden', activeTabName!=='journal');
-  document.querySelectorAll('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.tab===activeTabName));
+  showViewsFor(activeTabName);
   updateTabIndicator();
-  renderHome(); renderNotes(); renderQuizzes(); renderJournal();
+  renderAll();
   isRestoringHistory = false;
 });
 function switchTab(tab){
   if(!confirmLeaveIfDirty()) return;
   activeTabName = tab;
-  document.getElementById('view-home').classList.toggle('hidden', tab!=='home');
-  document.getElementById('view-notes').classList.toggle('hidden', tab!=='notes');
-  document.getElementById('view-quizzes').classList.toggle('hidden', tab!=='quizzes');
-  document.getElementById('view-journal').classList.toggle('hidden', tab!=='journal');
-  document.querySelectorAll('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+  showViewsFor(tab);
   updateTabIndicator();
   pushHistoryState();
 }
@@ -1734,6 +1836,311 @@ function renderJournalImpl(){
         </div>`;
       }).join('')}
     </div>`}`;
+}
+
+/* =========================================================
+   NOTEBOOK — log an activity, earn points
+   ========================================================= */
+const ACTIVITY_KINDS = [
+  { key:'read',     label:'อ่านหนังสือ' },
+  { key:'exercise', label:'ออกกำลังกาย' },
+  { key:'work',     label:'งาน' },
+  { key:'study',    label:'เรียน' },
+  { key:'other',    label:'อื่นๆ' },
+];
+function kindLabel(k){ const f = ACTIVITY_KINDS.find(x=>x.key===k); return f ? f.label : 'อื่นๆ'; }
+function todayInputValue(){
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function newDraftActivity(){ return { title:'', kind:'read', points:10, date:todayInputValue() }; }
+
+function openNewActivityForm(){
+  draftActivity = newDraftActivity();
+  editingActivityId = null; notebookState = {mode:'form'};
+  notebookFormSnapshot = JSON.stringify(draftActivity);
+  renderNotebook();
+}
+function openEditActivityForm(id){
+  const a = wallet.activities.find(x=>x.id===id); if(!a) return;
+  draftActivity = { title:a.title, kind:a.kind||'other', points:a.points, date:a.date };
+  editingActivityId = id; notebookState = {mode:'form'};
+  notebookFormSnapshot = JSON.stringify(draftActivity);
+  renderNotebook();
+}
+function cancelActivityForm(){
+  notebookFormSnapshot = null; editingActivityId = null;
+  notebookState = {mode:'list'}; renderNotebook();
+}
+function setDraftActivityKind(k){ draftActivity.kind = k; renderNotebookForm(); }
+
+function saveActivityForm(){
+  const title = (draftActivity.title||'').trim();
+  if(!title){ showToast('ใส่ชื่อกิจกรรมก่อนบันทึก'); return; }
+  const points = Math.max(0, Math.round(Number(draftActivity.points) || 0));
+  if(!points){ showToast('ใส่คะแนนที่ได้ให้มากกว่า 0'); return; }
+
+  if(editingActivityId){
+    // Editing re-balances by the difference so the ledger stays truthful.
+    const a = wallet.activities.find(x=>x.id===editingActivityId);
+    const diff = points - a.points;
+    if(diff > 0) addPoints(diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
+    else if(diff < 0){
+      if(!spendPoints(-diff, 'แก้ไขกิจกรรม: ' + title, 'notebook')){
+        showToast('ลดคะแนนไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return;
+      }
+    }
+    Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date });
+    saveWallet();
+    showToast('แก้ไขกิจกรรมแล้ว');
+  }else{
+    wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date, createdAt:new Date().toISOString() });
+    addPoints(points, title, 'notebook');
+    showToast('บันทึกแล้ว +' + fmtPoints(points) + ' แต้ม');
+  }
+  notebookFormSnapshot = null; editingActivityId = null;
+  notebookState = {mode:'list'};
+  renderNotebook(); renderHome();
+}
+
+function confirmDeleteActivity(id, btnEl){
+  if(btnEl.dataset.confirm !== '1'){
+    btnEl.dataset.confirm = '1'; btnEl.textContent = 'ยืนยันการลบ?';
+    setTimeout(()=>{ if(btnEl.isConnected){ btnEl.dataset.confirm=''; btnEl.textContent='ลบ'; } }, 3000);
+    return;
+  }
+  const idx = wallet.activities.findIndex(a=>a.id===id);
+  if(idx===-1) return;
+  const a = wallet.activities[idx];
+  if(!spendPoints(a.points, 'ลบกิจกรรม: ' + a.title, 'notebook')){
+    showToast('ลบไม่ได้ เพราะคะแนนคงเหลือไม่พอจะหักคืน'); return;
+  }
+  wallet.activities.splice(idx,1);
+  saveWallet();
+  renderNotebook(); renderHome();
+  showToast('ลบกิจกรรมแล้ว -' + fmtPoints(a.points) + ' แต้ม');
+}
+
+function balanceCardHtml(sub){
+  return `
+    <div class="balance-card">
+      <p class="balance-label">คะแนนสะสมคงเหลือ</p>
+      <p class="balance-value">${fmtPoints(wallet.balance)}<span class="balance-unit">แต้ม</span></p>
+      ${sub ? `<p class="balance-sub">${sub}</p>` : ''}
+    </div>`;
+}
+
+function renderNotebookForm(){
+  const el = document.getElementById('view-notebook');
+  el.innerHTML = `
+    <button class="back-link" onclick="cancelActivityForm()">‹ กลับ</button>
+    <div class="form-block">
+      <div class="field">
+        <label>ชื่อกิจกรรม</label>
+        <input type="text" id="activity-title-input" placeholder="เช่น อ่านหนังสือ 30 หน้า" value="${escapeHtml(draftActivity.title)}" oninput="draftActivity.title=this.value">
+      </div>
+      <div class="field">
+        <label>ประเภท</label>
+        <div class="toggle-group">
+          ${ACTIVITY_KINDS.map(k=>`<button type="button" class="toggle-btn ${draftActivity.kind===k.key?'active':''}" onclick="setDraftActivityKind('${k.key}')">${k.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field">
+        <label>คะแนนที่ได้</label>
+        <input type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(draftActivity.points))}" oninput="draftActivity.points=this.value">
+      </div>
+      <div class="field">
+        <label>วันที่</label>
+        <input type="date" value="${escapeHtml(draftActivity.date)}" oninput="draftActivity.date=this.value">
+      </div>
+    </div>
+    <div class="row-actions">
+      <button class="btn btn-primary" onclick="saveActivityForm()">บันทึกไว้</button>
+      <button class="btn btn-ghost" onclick="cancelActivityForm()">ยกเลิก</button>
+    </div>`;
+}
+
+function renderNotebook(){ renderNotebookImpl(); pushHistoryState(); }
+function renderNotebookImpl(){
+  const el = document.getElementById('view-notebook');
+  if(!el || !wallet) return;
+
+  if(notebookState.mode === 'form'){ renderNotebookForm(); return; }
+
+  const acts = [...wallet.activities].sort((a,b)=> String(b.date).localeCompare(String(a.date)) || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  const earned = wallet.ledger.filter(l=>l.amount>0).reduce((s,l)=>s+l.amount,0);
+
+  el.innerHTML = `
+    ${balanceCardHtml(`ได้มาแล้วทั้งหมด ${fmtPoints(earned)} แต้ม จาก ${wallet.activities.length} กิจกรรม`)}
+    <div class="list-head">
+      <h2>กิจกรรมที่ได้คะแนน</h2>
+      <button class="btn btn-primary btn-sm" onclick="openNewActivityForm()">+ บันทึกกิจกรรม</button>
+    </div>
+    ${acts.length===0 ? `
+      <div class="empty">
+        <div class="doodle">📓</div>
+        <p>ยังไม่มีกิจกรรม บันทึกสิ่งที่ทำวันนี้เพื่อสะสมแต้มไว้ใช้ในหน้ามาร์เก็ตได้เลย</p>
+        <button class="btn btn-primary" onclick="openNewActivityForm()">+ บันทึกกิจกรรมแรก</button>
+      </div>` : `
+      <div class="cards">
+        ${acts.map(a=>`
+          <div class="card">
+            <div class="card-top">
+              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span></p>
+              <span class="points-badge plus">+${fmtPoints(a.points)}</span>
+            </div>
+            <p class="card-meta">${escapeHtml(a.date||'')}</p>
+            <div class="row-actions" style="margin-top:8px;">
+              <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
+              <button class="btn btn-danger btn-sm" onclick="confirmDeleteActivity('${a.id}', this)">ลบ</button>
+            </div>
+          </div>`).join('')}
+      </div>`}`;
+}
+
+/* =========================================================
+   MARKET — spend points on real-life rewards
+   ========================================================= */
+function newDraftItem(){ return { name:'', desc:'', price:100 }; }
+
+function openNewItemForm(){
+  draftItem = newDraftItem();
+  editingItemId = null; marketState = {mode:'form'};
+  marketFormSnapshot = JSON.stringify(draftItem);
+  renderMarket();
+}
+function openEditItemForm(id){
+  const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
+  draftItem = { name:it.name, desc:it.desc||'', price:it.price };
+  editingItemId = id; marketState = {mode:'form'};
+  marketFormSnapshot = JSON.stringify(draftItem);
+  renderMarket();
+}
+function cancelItemForm(){
+  marketFormSnapshot = null; editingItemId = null;
+  marketState = {mode:'list'}; renderMarket();
+}
+function saveItemForm(){
+  const name = (draftItem.name||'').trim();
+  if(!name){ showToast('ใส่ชื่อไอเทมก่อนบันทึก'); return; }
+  const price = Math.max(1, Math.round(Number(draftItem.price) || 0));
+  if(editingItemId){
+    const it = wallet.marketItems.find(x=>x.id===editingItemId);
+    Object.assign(it, { name, desc:(draftItem.desc||'').trim(), price });
+  }else{
+    wallet.marketItems.push({ id:uid(), name, desc:(draftItem.desc||'').trim(), price, createdAt:new Date().toISOString() });
+  }
+  saveWallet();
+  marketFormSnapshot = null; editingItemId = null;
+  marketState = {mode:'list'};
+  renderMarket();
+  showToast('บันทึกไอเทมแล้ว');
+}
+function confirmDeleteItem(id, btnEl){
+  if(btnEl.dataset.confirm !== '1'){
+    btnEl.dataset.confirm = '1'; btnEl.textContent = 'ยืนยันการลบ?';
+    setTimeout(()=>{ if(btnEl.isConnected){ btnEl.dataset.confirm=''; btnEl.textContent='ลบ'; } }, 3000);
+    return;
+  }
+  const idx = wallet.marketItems.findIndex(x=>x.id===id);
+  if(idx===-1) return;
+  wallet.marketItems.splice(idx,1);
+  saveWallet();
+  renderMarket();
+  showToast('ลบไอเทมแล้ว');
+}
+function redeemItem(id){
+  const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
+  if(!spendPoints(it.price, 'แลก: ' + it.name, 'market')){
+    showToast('คะแนนไม่พอ ต้องมีอีก ' + fmtPoints(it.price - wallet.balance) + ' แต้ม');
+    return;
+  }
+  wallet.redemptions.push({ id:uid(), itemId:it.id, name:it.name, price:it.price, redeemedAt:new Date().toISOString() });
+  saveWallet();
+  renderMarket(); renderHome();
+  showToast('แลก "' + it.name + '" แล้ว -' + fmtPoints(it.price) + ' แต้ม');
+}
+
+function renderMarketForm(){
+  const el = document.getElementById('view-market');
+  el.innerHTML = `
+    <button class="back-link" onclick="cancelItemForm()">‹ กลับ</button>
+    <div class="form-block">
+      <div class="field">
+        <label>ชื่อไอเทม</label>
+        <input type="text" id="item-name-input" placeholder="เช่น ใบลาหยุด 1 วัน" value="${escapeHtml(draftItem.name)}" oninput="draftItem.name=this.value">
+      </div>
+      <div class="field">
+        <label>คำอธิบาย (ถ้ามี)</label>
+        <input type="text" placeholder="เช่น ใช้ขอลาหยุดได้ 1 วันโดยไม่รู้สึกผิด" value="${escapeHtml(draftItem.desc)}" oninput="draftItem.desc=this.value">
+      </div>
+      <div class="field">
+        <label>ราคา (แต้ม)</label>
+        <input type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(draftItem.price))}" oninput="draftItem.price=this.value">
+      </div>
+    </div>
+    <div class="row-actions">
+      <button class="btn btn-primary" onclick="saveItemForm()">บันทึกไว้</button>
+      <button class="btn btn-ghost" onclick="cancelItemForm()">ยกเลิก</button>
+    </div>`;
+}
+
+function renderMarket(){ renderMarketImpl(); pushHistoryState(); }
+function renderMarketImpl(){
+  const el = document.getElementById('view-market');
+  if(!el || !wallet) return;
+
+  if(marketState.mode === 'form'){ renderMarketForm(); return; }
+
+  const items = [...wallet.marketItems].sort((a,b)=> a.price - b.price);
+  const recent = [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt)).slice(0,5);
+
+  el.innerHTML = `
+    ${balanceCardHtml('ใช้แต้มแลกสิ่งที่อยากได้ในชีวิตจริง')}
+    <div class="list-head">
+      <h2>ไอเทมในร้าน</h2>
+      <button class="btn btn-primary btn-sm" onclick="openNewItemForm()">+ เพิ่มไอเทม</button>
+    </div>
+    ${items.length===0 ? `
+      <div class="empty">
+        <div class="doodle">🎁</div>
+        <p>ยังไม่มีไอเทม ลองตั้งรางวัลให้ตัวเอง เช่น ใบลาหยุด 1 วัน หรือของที่อยากซื้อ</p>
+        <button class="btn btn-primary" onclick="openNewItemForm()">+ เพิ่มไอเทมแรก</button>
+      </div>` : `
+      <div class="cards">
+        ${items.map(it=>{
+          const affordable = wallet.balance >= it.price;
+          return `
+          <div class="card">
+            <div class="card-top">
+              <p class="card-title">${escapeHtml(it.name)}</p>
+              <span class="price-tag">${fmtPoints(it.price)} แต้ม</span>
+            </div>
+            ${it.desc ? `<p class="card-snippet">${escapeHtml(it.desc)}</p>` : ''}
+            <div class="item-card-foot">
+              <button class="btn ${affordable?'btn-primary':'btn-ghost'} btn-sm" onclick="redeemItem('${it.id}')" ${affordable?'':'title="คะแนนยังไม่พอ"'}>
+                ${affordable ? 'แลกเลย' : 'ยังขาด ' + fmtPoints(it.price - wallet.balance) + ' แต้ม'}
+              </button>
+              <span class="row-actions">
+                <button class="btn btn-ghost btn-sm" onclick="openEditItemForm('${it.id}')">แก้ไข</button>
+                <button class="btn btn-danger btn-sm" onclick="confirmDeleteItem('${it.id}', this)">ลบ</button>
+              </span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`}
+    ${recent.length ? `
+      <p class="mini-label">แลกไปแล้วล่าสุด</p>
+      <div class="cards">
+        ${recent.map(r=>`
+          <div class="ledger-row">
+            <div>
+              <p class="ledger-reason">${escapeHtml(r.name)}</p>
+              <p class="ledger-time">${fmtShortDate(r.redeemedAt)}</p>
+            </div>
+            <span class="points-badge minus">-${fmtPoints(r.price)}</span>
+          </div>`).join('')}
+      </div>` : ''}`;
 }
 
 /* ---------------- Init ---------------- */
