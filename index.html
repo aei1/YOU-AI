@@ -6,6 +6,7 @@
 <title>เว็บเรียนของฉัน</title>
 <link rel="icon" type="image/jpeg" href="logo.jpg?v=2">
 <link rel="apple-touch-icon" href="logo.jpg?v=2">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Charmonman:wght@400;700&family=Sarabun:wght@400;500;600;700&family=Chakra+Petch:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -442,6 +443,44 @@
   }
   body.locked .app, body.locked .toast{display:none;}
 
+  /* Google Drive connect / loading screen */
+  #drive-gate{
+    position:fixed; inset:0; z-index:190; background:var(--cover-dark);
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  #drive-gate.hidden{display:none;}
+  #drive-gate .gate-card{
+    width:100%; max-width:340px; background:var(--paper); border-radius:14px;
+    padding:26px 22px; box-shadow:0 24px 60px -20px rgba(0,0,0,.6); text-align:center;
+  }
+  #drive-gate h2{font-family:var(--font-display); font-size:24px; margin:0 0 10px; color:var(--ink);}
+  #drive-gate p{font-size:13.5px; color:var(--ink-soft); line-height:1.6; margin:0 0 16px;}
+  #drive-gate .btn{width:100%;}
+  #drive-gate .drive-err{color:var(--red-pen); font-size:12.5px; margin:12px 0 0; word-break:break-word;}
+  body.drive-pending .app, body.drive-pending .toast{display:none;}
+  .spinner{
+    width:26px; height:26px; margin:0 auto 14px; border-radius:50%;
+    border:3px solid var(--paper-line); border-top-color:var(--cover);
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce){ .spinner{ animation-duration:2s; } }
+
+  /* Sync status pill in the header */
+  .sync-pill{
+    position:absolute; top:14px; right:14px; display:flex; align-items:center; gap:6px;
+    font-family:var(--font-mono); font-size:10.5px; letter-spacing:.3px;
+    background:rgba(246,241,228,.12); border:1px solid rgba(246,241,228,.28);
+    color:rgba(246,241,228,.82); border-radius:20px; padding:3px 10px;
+    cursor:default;
+  }
+  .sync-pill .dot{ width:6px; height:6px; border-radius:50%; background:var(--green-check); }
+  .sync-pill.is-saving .dot{ background:var(--highlighter); animation:pulse 1s ease-in-out infinite; }
+  .sync-pill.is-error{ border-color:var(--red-pen); color:#F0B8B0; cursor:pointer; }
+  .sync-pill.is-error .dot{ background:var(--red-pen); }
+  @keyframes pulse{ 50%{ opacity:.35; } }
+  @media (prefers-reduced-motion: reduce){ .sync-pill.is-saving .dot{ animation:none; } }
+
   @media (max-width:640px){
     body{ padding:0; align-items:stretch; }
     .app{
@@ -474,9 +513,13 @@
       <div class="gate-error" id="gate-error" role="alert"></div>
     </div>
   </div>
+  <div id="drive-gate" class="hidden">
+    <div class="gate-card" id="drive-card"></div>
+  </div>
   <div class="app">
     <div class="ring-strip"></div>
     <header class="app-header">
+      <div class="sync-pill" id="sync-pill" title="สถานะการซิงก์กับ Google Drive"><span class="dot"></span><span id="sync-text">ซิงก์แล้ว</span></div>
       <h1 class="brand">เว็บเรียนของฉัน</h1>
       <p class="sub">ศูนย์รวมบทเรียนและแบบทดสอบภาษาอังกฤษ-จีนของคุณ</p>
       <p class="date-line" id="date-line"></p>
@@ -518,6 +561,7 @@
     sessionStorage.setItem(SESSION_KEY, "yes");
     document.body.classList.remove("locked");
     document.getElementById("gate").classList.add("hidden");
+    loadAll();   // only reach for Drive once the PIN screen is out of the way
   }
 
   if(sessionStorage.getItem(SESSION_KEY) === "yes"){ unlock(); return; }
@@ -842,41 +886,268 @@ function fmtShortDate(iso){
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()+543}`;
 }
 
-/* ---------------- Storage ----------------
-   Source of truth on any one device is localStorage (so the in-app forms
-   stay instant). data.json is the sync file committed to git: a device
-   only seeds from it the first time its own localStorage is empty (e.g.
-   a phone's first visit after the computer's edits were pushed and
-   deployed). There is no in-app export/import UI — updating data.json
-   itself is a manual step outside this page.
-------------------------------------------- */
-async function loadAll(){
-  try{ const v = localStorage.getItem('notes'); notes = v ? JSON.parse(v) : null; }catch(e){ notes = null; }
-  try{ const v = localStorage.getItem('quizzes'); quizzes = v ? JSON.parse(v) : null; }catch(e){ quizzes = null; }
-  try{ const v = localStorage.getItem('journal'); journal = v ? JSON.parse(v) : null; }catch(e){ journal = null; }
-  try{ const v = localStorage.getItem('pointsWallet'); wallet = v ? normalizeWallet(JSON.parse(v)) : null; }catch(e){ wallet = null; }
-  try{ const v = localStorage.getItem('notifications'); notifications = v ? JSON.parse(v) : []; }catch(e){ notifications = []; }
-  if(!Array.isArray(notifications)) notifications = [];
-  if(notes === null || quizzes === null || journal === null || wallet === null){
-    try{
-      const res = await fetch('data.json', { cache:'no-store' });
-      if(res.ok){
-        const seed = await res.json();
-        if(notes === null) notes = Array.isArray(seed.notes) ? seed.notes : [];
-        if(quizzes === null) quizzes = Array.isArray(seed.quizzes) ? seed.quizzes : [];
-        if(journal === null) journal = Array.isArray(seed.journal) ? seed.journal : [];
-        if(wallet === null) wallet = normalizeWallet(seed.pointsWallet);
-        localStorage.setItem('notes', JSON.stringify(notes));
-        localStorage.setItem('quizzes', JSON.stringify(quizzes));
-        localStorage.setItem('journal', JSON.stringify(journal));
-        localStorage.setItem('pointsWallet', JSON.stringify(wallet));
+/* ---------------- Storage: Google Drive ----------------
+   Google Drive is the only store. Every read and write goes to one JSON
+   file in the user's own Drive; there is no localStorage copy and no
+   offline mode, so the app needs a connection and a signed-in Google
+   account to show anything at all.
+
+   The drive.file scope means this app can only ever see the file it
+   created itself — nothing else in the user's Drive is visible to it.
+--------------------------------------------------------- */
+const GOOGLE_CLIENT_ID = '177645999629-qivrofnok8r8qiggp6ltcgmcl99l99r0.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILENAME = 'you-ai-data.json';
+const SAVE_DEBOUNCE_MS = 900;
+
+let accessToken = null;
+let driveFileId = null;
+let tokenClient = null;
+let saveTimer = null;
+let savePending = false;
+let saveInFlight = null;
+
+function driveCard(html){
+  document.getElementById('drive-card').innerHTML = html;
+  document.getElementById('drive-gate').classList.remove('hidden');
+  document.body.classList.add('drive-pending');
+}
+function hideDriveGate(){
+  document.getElementById('drive-gate').classList.add('hidden');
+  document.body.classList.remove('drive-pending');
+}
+function showDriveBusy(msg){
+  driveCard(`<div class="spinner"></div><h2>${escapeHtml(msg)}</h2>`);
+}
+function showDriveConnect(){
+  driveCard(`
+    <h2>เชื่อมต่อ Google Drive</h2>
+    <p>ข้อมูลทั้งหมดของคุณเก็บอยู่ใน Google Drive ของคุณเอง
+       เข้าสู่ระบบด้วยบัญชี Google เพื่อโหลดข้อมูลขึ้นมาใช้งาน</p>
+    <button class="btn btn-primary" onclick="connectDrive()">เข้าสู่ระบบด้วย Google</button>`);
+}
+function showDriveError(msg){
+  driveCard(`
+    <h2>เชื่อมต่อไม่สำเร็จ</h2>
+    <p>ต้องเชื่อมต่ออินเทอร์เน็ตและเข้าสู่ระบบ Google จึงจะใช้งานได้
+       เพราะข้อมูลทั้งหมดอยู่บน Google Drive</p>
+    <button class="btn btn-primary" onclick="connectDrive()">ลองใหม่อีกครั้ง</button>
+    <p class="drive-err">${escapeHtml(msg || '')}</p>`);
+}
+
+function setSyncState(state, text){
+  const pill = document.getElementById('sync-pill');
+  const label = document.getElementById('sync-text');
+  if(!pill || !label) return;
+  pill.classList.toggle('is-saving', state === 'saving');
+  pill.classList.toggle('is-error', state === 'error');
+  pill.onclick = state === 'error' ? flushSave : null;
+  label.textContent = text;
+}
+
+/* ---- OAuth ---- */
+function gisReady(){
+  return !!(window.google && google.accounts && google.accounts.oauth2);
+}
+function waitForGis(timeoutMs){
+  return new Promise((resolve, reject)=>{
+    if(gisReady()) return resolve();
+    const started = Date.now();
+    const t = setInterval(()=>{
+      if(gisReady()){ clearInterval(t); resolve(); }
+      else if(Date.now() - started > timeoutMs){
+        clearInterval(t);
+        reject(new Error('โหลดไลบรารีของ Google ไม่สำเร็จ'));
       }
-    }catch(e){ /* data.json not reachable (e.g. opened as a local file) — fall through */ }
+    }, 120);
+  });
+}
+/* prompt:'' asks silently — it only works once access was granted before,
+   so the first ever sign-in still needs the button. */
+function requestToken(silent){
+  return new Promise((resolve, reject)=>{
+    if(!tokenClient){
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: () => {}
+      });
+    }
+    tokenClient.callback = (resp)=>{
+      if(resp && resp.access_token){ accessToken = resp.access_token; resolve(resp.access_token); }
+      else reject(new Error(resp && resp.error ? resp.error : 'ไม่ได้รับสิทธิ์เข้าถึง Drive'));
+    };
+    tokenClient.error_callback = (err)=> reject(new Error((err && err.type) || 'การเข้าสู่ระบบถูกยกเลิก'));
+    try{ tokenClient.requestAccessToken({ prompt: silent ? '' : 'consent' }); }
+    catch(e){ reject(e); }
+  });
+}
+
+/* ---- Drive REST helpers ---- */
+async function driveFetch(url, opts, retrying){
+  const o = Object.assign({}, opts);
+  o.headers = Object.assign({}, o.headers, { Authorization: 'Bearer ' + accessToken });
+  const res = await fetch(url, o);
+  if(res.status === 401 && !retrying){
+    // Access tokens expire after about an hour; get a fresh one and retry once.
+    await requestToken(true);
+    return driveFetch(url, opts, true);
   }
-  if(notes === null) notes = [];
-  if(quizzes === null) quizzes = [];
-  if(journal === null) journal = [];
-  if(wallet === null) wallet = emptyWallet();
+  if(!res.ok){
+    const body = await res.text().catch(()=> '');
+    throw new Error('Drive ' + res.status + ' ' + body.slice(0, 140));
+  }
+  return res;
+}
+async function findDriveFile(){
+  const q = encodeURIComponent(`name='${DRIVE_FILENAME}' and trashed=false`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,modifiedTime)&pageSize=1`);
+  const data = await res.json();
+  return (data.files && data.files[0]) ? data.files[0].id : null;
+}
+async function createDriveFile(doc){
+  const boundary = 'youai' + Math.random().toString(36).slice(2);
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify({ name: DRIVE_FILENAME, mimeType: 'application/json' }) +
+    `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify(doc) +
+    `\r\n--${boundary}--`;
+  const res = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+    body
+  });
+  return (await res.json()).id;
+}
+async function readDriveFile(id){
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+  return await res.json();
+}
+async function writeDriveFile(id, doc){
+  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+    body: JSON.stringify(doc)
+  });
+}
+
+/* ---- The document that lives on Drive ---- */
+function currentDoc(){
+  return {
+    version: 1,
+    notes, quizzes, journal, notifications,
+    pointsWallet: wallet,
+    lastModifiedAt: new Date().toISOString()
+  };
+}
+function applyDoc(doc){
+  doc = doc && typeof doc === 'object' ? doc : {};
+  notes = Array.isArray(doc.notes) ? doc.notes : [];
+  quizzes = Array.isArray(doc.quizzes) ? doc.quizzes : [];
+  journal = Array.isArray(doc.journal) ? doc.journal : [];
+  notifications = Array.isArray(doc.notifications) ? doc.notifications : [];
+  wallet = normalizeWallet(doc.pointsWallet);
+}
+
+/* One-time rescue of anything a device saved before this version, so
+   upgrading doesn't throw the user's existing data away. Read once,
+   handed to Drive, then the local copy is cleared for good. */
+function takeLegacyLocalData(){
+  const keys = ['notes','quizzes','journal','pointsWallet','notifications'];
+  let found = null;
+  try{
+    const raw = {};
+    keys.forEach(k=>{ const v = localStorage.getItem(k); if(v) raw[k] = JSON.parse(v); });
+    const hasSomething =
+      (raw.notes && raw.notes.length) || (raw.quizzes && raw.quizzes.length) ||
+      (raw.journal && raw.journal.length) || (raw.notifications && raw.notifications.length) ||
+      (raw.pointsWallet && (raw.pointsWallet.balance || (raw.pointsWallet.activities||[]).length || (raw.pointsWallet.marketItems||[]).length));
+    if(hasSomething) found = raw;
+  }catch(e){ found = null; }
+  try{ keys.forEach(k=> localStorage.removeItem(k)); }catch(e){ /* nothing to clean up */ }
+  return found;
+}
+
+/* ---- Saving ---- */
+function scheduleSave(){
+  savePending = true;
+  setSyncState('saving', 'กำลังบันทึก');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+}
+async function flushSave(){
+  clearTimeout(saveTimer);
+  if(!savePending || !driveFileId) return;
+  if(saveInFlight) return saveInFlight;          // one write at a time
+  savePending = false;
+  setSyncState('saving', 'กำลังบันทึก');
+  saveInFlight = (async ()=>{
+    try{
+      await writeDriveFile(driveFileId, currentDoc());
+      setSyncState('ok', 'ซิงก์แล้ว');
+    }catch(e){
+      savePending = true;                        // keep it queued for a retry
+      setSyncState('error', 'บันทึกไม่สำเร็จ');
+      showToast('บันทึกขึ้น Drive ไม่สำเร็จ แตะที่สถานะเพื่อลองใหม่');
+    }finally{
+      saveInFlight = null;
+    }
+  })();
+  return saveInFlight;
+}
+// Don't lose the last edit when the tab is closed or backgrounded.
+window.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') flushSave(); });
+window.addEventListener('pagehide', flushSave);
+
+/* Every save entry point now writes the whole document to Drive. */
+function saveNotes(){ scheduleSave(); renderHome(); }
+function saveQuizzes(){ scheduleSave(); renderHome(); }
+function saveJournal(){ scheduleSave(); }
+
+/* ---- Boot ---- */
+async function connectDrive(){
+  try{
+    showDriveBusy('กำลังเชื่อมต่อ Google Drive...');
+    await waitForGis(12000);
+    if(!accessToken) await requestToken(false);
+    await loadFromDrive();
+  }catch(e){
+    showDriveError(e && e.message ? e.message : String(e));
+  }
+}
+async function loadFromDrive(){
+  showDriveBusy('กำลังโหลดข้อมูลจาก Drive...');
+  driveFileId = await findDriveFile();
+
+  if(driveFileId){
+    applyDoc(await readDriveFile(driveFileId));
+  }else{
+    // First run on this account: carry over any pre-Drive local data,
+    // otherwise start from the seed file shipped with the site.
+    const legacy = takeLegacyLocalData();
+    if(legacy){
+      applyDoc({
+        notes: legacy.notes, quizzes: legacy.quizzes, journal: legacy.journal,
+        notifications: legacy.notifications, pointsWallet: legacy.pointsWallet
+      });
+    }else{
+      let seed = {};
+      try{
+        const res = await fetch('data.json', { cache:'no-store' });
+        if(res.ok) seed = await res.json();
+      }catch(e){ /* the seed is optional */ }
+      applyDoc(seed);
+    }
+    driveFileId = await createDriveFile(currentDoc());
+    if(legacy) showToast('ย้ายข้อมูลเดิมในเครื่องขึ้น Google Drive แล้ว');
+  }
+
+  hideDriveGate();
+  setSyncState('ok', 'ซิงก์แล้ว');
+  startApp();
+}
+function startApp(){
   maybeDailyNudge();
   renderAll();
   requestAnimationFrame(updateTabIndicator);
@@ -885,19 +1156,17 @@ async function loadAll(){
   lastPushedHistoryKey = historyKey();
   history.replaceState(historySnapshot(), '');
 }
-function saveNotes(){
-  try{ localStorage.setItem('notes', JSON.stringify(notes)); }
-  catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
-  renderHome();
-}
-function saveQuizzes(){
-  try{ localStorage.setItem('quizzes', JSON.stringify(quizzes)); }
-  catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
-  renderHome();
-}
-function saveJournal(){
-  try{ localStorage.setItem('journal', JSON.stringify(journal)); }
-  catch(e){ showToast('บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง'); }
+/* Called once the PIN gate is out of the way. Tries a silent sign-in
+   first so returning visitors skip the button. */
+async function loadAll(){
+  try{
+    showDriveBusy('กำลังเชื่อมต่อ Google Drive...');
+    await waitForGis(12000);
+    await requestToken(true);
+    await loadFromDrive();
+  }catch(e){
+    showDriveConnect();
+  }
 }
 
 /* =========================================================
@@ -923,8 +1192,7 @@ function normalizeWallet(w){
 }
 function saveWallet(){
   wallet.lastModifiedAt = new Date().toISOString();
-  try{ localStorage.setItem('pointsWallet', JSON.stringify(wallet)); }
-  catch(e){ showToast('บันทึกคะแนนไม่สำเร็จ ลองอีกครั้ง'); }
+  scheduleSave();
 }
 function addPoints(amount, reason, source){
   const amt = Math.max(0, Math.round(Number(amount) || 0));
@@ -952,10 +1220,7 @@ function fmtPoints(n){ return (Number(n)||0).toLocaleString('th-TH'); }
    newest 30 are kept so the board never grows without bound.
    ========================================================= */
 const NOTIF_LIMIT = 30;
-function saveNotifications(){
-  try{ localStorage.setItem('notifications', JSON.stringify(notifications)); }
-  catch(e){ /* a full quota should never break the action that caused the note */ }
-}
+function saveNotifications(){ scheduleSave(); }
 function pushNotification(kind, title, body){
   notifications.unshift({ id:uid(), kind, title, body:body||'', createdAt:new Date().toISOString(), read:false });
   if(notifications.length > NOTIF_LIMIT) notifications.length = NOTIF_LIMIT;
@@ -2286,9 +2551,10 @@ function renderMarketImpl(){
       </div>` : ''}`;
 }
 
-/* ---------------- Init ---------------- */
+/* ---------------- Init ----------------
+   loadAll() is kicked off by the PIN gate's unlock(), not here, so the
+   Google sign-in popup never opens behind the lock screen. */
 setDateLine();
-loadAll();
 </script>
 </body>
 </html>
