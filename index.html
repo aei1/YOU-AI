@@ -335,13 +335,39 @@
   }
   #gate .gate-logo{ display:block; width:64px; height:64px; border-radius:50%; object-fit:cover; margin:0 auto 12px; box-shadow:0 4px 14px rgba(0,0,0,.5); }
   #gate h2{font-family:var(--font-display); font-size:26px; margin:0 0 14px; color:var(--ink);}
-  #gate input{
-    width:100%; font-family:var(--font-body); font-size:15px; padding:9px 11px;
-    border:1.5px solid var(--paper-line); border-radius:7px; background:var(--paper-shade); color:var(--ink);
+  #gate .gate-error{color:var(--red-pen); font-size:13px; margin-top:10px; min-height:16px;}
+
+  /* PIN pad */
+  .pin-dots{ display:flex; justify-content:center; gap:14px; margin:4px 0 20px; }
+  .pin-dot{
+    width:13px; height:13px; border-radius:50%;
+    border:1.5px solid var(--ink-soft); background:transparent;
+    transition:background .12s ease, transform .12s ease, border-color .12s ease;
   }
-  #gate input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
-  #gate .btn{width:100%; margin-top:10px;}
-  #gate .gate-error{color:var(--red-pen); font-size:13px; margin-top:8px; min-height:16px;}
+  .pin-dot.filled{ background:var(--ink); border-color:var(--ink); transform:scale(1.12); }
+  .pin-pad{ display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+  .pin-key{
+    font-family:var(--font-body); font-size:22px; font-weight:600;
+    aspect-ratio:1; border-radius:50%; cursor:pointer;
+    border:1.5px solid var(--paper-line); background:var(--paper-shade); color:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .1s ease, background .12s ease;
+    -webkit-user-select:none; user-select:none;
+  }
+  .pin-key:active{ transform:scale(.93); background:var(--paper-line); }
+  .pin-key.ghost{ border-color:transparent; background:transparent; font-size:17px; color:var(--ink-soft); }
+  .pin-key.ghost:active{ background:var(--paper-shade); }
+  .pin-key.blank{ visibility:hidden; pointer-events:none; }
+  .gate-card.shake{ animation:gate-shake .4s; }
+  @keyframes gate-shake{
+    0%,100%{transform:translateX(0);}
+    20%{transform:translateX(-9px);} 40%{transform:translateX(9px);}
+    60%{transform:translateX(-5px);} 80%{transform:translateX(5px);}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .gate-card.shake{ animation:none; }
+    .pin-dot, .pin-key{ transition:none; }
+  }
   body.locked .app, body.locked .toast{display:none;}
 
   @media (max-width:640px){
@@ -359,7 +385,7 @@
 
     /* Prevent iOS Safari's auto-zoom-on-focus (triggers below 16px) */
     .field input[type=text], .field textarea, .field select,
-    .search-input, #gate input{ font-size:16px; }
+    .search-input{ font-size:16px; }
 
     .vocab-grid{ grid-template-columns:1fr; }
     .opt-remove{ padding:6px 8px; font-size:15px; }
@@ -370,12 +396,10 @@
   <div id="gate">
     <div class="gate-card">
       <img src="logo.jpg" alt="" class="gate-logo">
-      <h2>ใส่รหัสผ่าน</h2>
-      <form id="gate-form">
-        <input type="password" id="gate-input" autocomplete="current-password" autofocus>
-        <button type="submit" class="btn btn-primary">เข้าดู</button>
-        <div class="gate-error" id="gate-error"></div>
-      </form>
+      <h2>ใส่รหัส</h2>
+      <div class="pin-dots" id="pin-dots" aria-hidden="true"></div>
+      <div class="pin-pad" id="pin-pad"></div>
+      <div class="gate-error" id="gate-error" role="alert"></div>
     </div>
   </div>
   <div class="app">
@@ -404,27 +428,91 @@
   <div class="toast" id="toast"></div>
 
 <script>
-/* ---------------- Password gate ---------------- */
+/* ---------------- PIN gate ----------------
+   A phone-style keypad instead of a typed password. The check is still a
+   plain client-side comparison, exactly as the old password field was:
+   this keeps casual eyes out, it is not real security.
+------------------------------------------- */
 (function(){
-  // Change this to your own password.
-  var PASSWORD = "2004";
+  // Change this to your own PIN.
+  var PIN = "2004";
   var SESSION_KEY = "lang-notes-unlocked";
-  if(sessionStorage.getItem(SESSION_KEY) === "yes"){
+
+  function unlock(){
+    sessionStorage.setItem(SESSION_KEY, "yes");
     document.body.classList.remove("locked");
     document.getElementById("gate").classList.add("hidden");
-    return;
   }
-  document.getElementById("gate-form").addEventListener("submit", function(e){
-    e.preventDefault();
-    var value = document.getElementById("gate-input").value;
-    if(value === PASSWORD){
-      sessionStorage.setItem(SESSION_KEY, "yes");
-      document.body.classList.remove("locked");
-      document.getElementById("gate").classList.add("hidden");
-    } else {
-      document.getElementById("gate-error").textContent = "รหัสผ่านไม่ถูกต้อง";
+
+  if(sessionStorage.getItem(SESSION_KEY) === "yes"){ unlock(); return; }
+
+  var entry = "";
+  var locked = false;               // brief lock-out while the wrong-PIN shake plays
+  var dotsEl = document.getElementById("pin-dots");
+  var padEl = document.getElementById("pin-pad");
+  var errEl = document.getElementById("gate-error");
+  var cardEl = document.querySelector("#gate .gate-card");
+
+  function renderDots(){
+    var html = "";
+    for(var i = 0; i < PIN.length; i++){
+      html += '<span class="pin-dot' + (i < entry.length ? ' filled' : '') + '"></span>';
     }
+    dotsEl.innerHTML = html;
+  }
+
+  function reject(){
+    locked = true;
+    errEl.textContent = "รหัสไม่ถูกต้อง";
+    cardEl.classList.add("shake");
+    setTimeout(function(){
+      cardEl.classList.remove("shake");
+      entry = "";
+      locked = false;
+      renderDots();
+    }, 420);
+  }
+
+  function press(digit){
+    if(locked || entry.length >= PIN.length) return;
+    entry += digit;
+    errEl.textContent = "";
+    renderDots();
+    if(entry.length === PIN.length){
+      if(entry === PIN) unlock();
+      else reject();
+    }
+  }
+
+  function backspace(){
+    if(locked || !entry.length) return;
+    entry = entry.slice(0, -1);
+    errEl.textContent = "";
+    renderDots();
+  }
+
+  var keys = ["1","2","3","4","5","6","7","8","9","blank","0","back"];
+  padEl.innerHTML = keys.map(function(k){
+    if(k === "blank") return '<div class="pin-key blank"></div>';
+    if(k === "back")  return '<button type="button" class="pin-key ghost" data-key="back" aria-label="ลบ">⌫</button>';
+    return '<button type="button" class="pin-key" data-key="' + k + '">' + k + '</button>';
+  }).join("");
+
+  padEl.addEventListener("click", function(e){
+    var btn = e.target.closest("[data-key]");
+    if(!btn) return;
+    if(btn.dataset.key === "back") backspace();
+    else press(btn.dataset.key);
   });
+
+  // Physical keyboard still works on desktop.
+  document.addEventListener("keydown", function(e){
+    if(document.body.classList.contains("locked") === false) return;
+    if(e.key >= "0" && e.key <= "9") press(e.key);
+    else if(e.key === "Backspace"){ e.preventDefault(); backspace(); }
+  });
+
+  renderDots();
 })();
 
 /* ---------------- Language meta ---------------- */
