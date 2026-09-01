@@ -1,5 +1,12 @@
 {
   "notes": [],
   "quizzes": [],
-  "journal": []
+  "journal": [],
+  "pointsWallet": {
+    "balance": 0,
+    "ledger": [],
+    "activities": [],
+    "marketItems": [],
+    "redemptions": []
+  }
 }
