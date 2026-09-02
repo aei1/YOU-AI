@@ -775,23 +775,15 @@
 /* ---------------- Language meta ---------------- */
 const LANGS = { en:{label:'อังกฤษ', cls:'en'}, zh:{label:'จีน', cls:'zh'} };
 function langBadge(lang){ const l = LANGS[lang] || LANGS.en; return `<span class="lang-badge ${l.cls}">${l.label}</span>`; }
-function langChipsRow(current, fn){
-  const items = [{key:'all',label:'ทั้งหมด'},{key:'en',label:'อังกฤษ'},{key:'zh',label:'จีน'}];
-  return `<div class="filters">${items.map(it=>`<button class="lang-chip ${it.key} ${current===it.key?'active':''}" onclick="${fn}('${it.key}')">${it.label}</button>`).join('')}</div>`;
-}
 
 /* ---------------- State ---------------- */
 let notes = [];
 let quizzes = [];
 let notesState = { mode:'list' };
-let notesFilter = 'all';
-let notesSearch = '';
 let quizzesState = { mode:'list' };
-let quizzesFilter = 'all';
 let quizzesSearch = '';
 let journal = [];
 let journalState = { mode:'list' };
-let journalSearch = '';
 let wallet = null;                     // points wallet — see WALLET section
 let notifications = [];                // sticky-note board on the home tab
 let events = [];                       // hand-written calendar entries
@@ -838,7 +830,7 @@ function itemTags(x){ return Array.isArray(x && x.tags) ? x.tags : []; }
 function tagRegistry(){
   // key -> display spelling already in use somewhere
   const reg = new Map();
-  [...notes, ...quizzes].forEach(x=>{
+  [...notes, ...quizzes, ...journal].forEach(x=>{
     itemTags(x).forEach(t=>{
       const k = normTag(t);
       if(k && !reg.has(k)) reg.set(k, String(t).replace(/^#+/,'').trim());
@@ -862,13 +854,15 @@ function allTags(){
   function add(x, kind){
     itemTags(x).forEach(t=>{
       const k = normTag(t); if(!k) return;
-      if(!map.has(k)) map.set(k, { key:k, tag:String(t).replace(/^#+/,'').trim(), notes:0, quizzes:0 });
+      if(!map.has(k)) map.set(k, { key:k, tag:String(t).replace(/^#+/,'').trim(), notes:0, quizzes:0, journal:0 });
       map.get(k)[kind]++;
     });
   }
   notes.forEach(n=>add(n,'notes'));
   quizzes.forEach(q=>add(q,'quizzes'));
-  return [...map.values()].sort((a,b)=> (b.notes+b.quizzes)-(a.notes+a.quizzes) || a.tag.localeCompare(b.tag));
+  journal.forEach(j=>add(j,'journal'));
+  return [...map.values()].map(t=>({ ...t, total:t.notes + t.quizzes + t.journal }))
+    .sort((a,b)=> b.total-a.total || a.tag.localeCompare(b.tag));
 }
 function hasTag(x, key){ return itemTags(x).some(t=> normTag(t)===key); }
 /* Split a search string into #tag requirements and leftover free text. */
@@ -901,6 +895,10 @@ function relatedByTag(item, kind){
     if(kind==='quiz' && q.id===item.id) return;
     if(keys.some(k=>hasTag(q,k))) out.push({ type:'quiz', id:q.id, title:q.title, lang:q.lang||'en', bestScore:q.bestScore, bestTotal:q.bestTotal });
   });
+  journal.forEach(j=>{
+    if(kind==='journal' && j.id===item.id) return;
+    if(keys.some(k=>hasTag(j,k))) out.push({ type:'journal', id:j.id, title:j.title });
+  });
   return out;
 }
 function relatedHtml(item, kind){
@@ -909,8 +907,13 @@ function relatedHtml(item, kind){
   return `
     <p class="mini-label">อื่น ๆ ในหมวดเดียวกัน (${rel.length})</p>
     <div class="cards">
-      ${rel.map(r=> r.type==='note'
-        ? `<div class="activity-item" onclick="notesState={mode:'detail',id:'${r.id}'}; renderNotes(); gotoHub('read');">
+      ${rel.map(r=> r.type==='journal'
+        ? `<div class="activity-item" onclick="journalState={mode:'detail',id:'${r.id}'}; notesState={mode:'list'}; renderJournal(); gotoHub('read');">
+             <div class="activity-left"><p class="activity-title">${escapeHtml(r.title||'ไม่มีหัวข้อ')}</p></div>
+             <span class="activity-type">โน้ต</span>
+           </div>`
+        : r.type==='note'
+        ? `<div class="activity-item" onclick="notesState={mode:'detail',id:'${r.id}'}; journalState={mode:'list'}; renderNotes(); gotoHub('read');">
              <div class="activity-left"><p class="activity-title">${escapeHtml(r.title||'ไม่มีหัวข้อ')}${langBadge(r.lang)}</p></div>
              <span class="activity-type">บทเรียน</span>
            </div>`
@@ -949,17 +952,23 @@ function addDraftTag(which, tag){
   if(!cur.some(t=> normTag(t)===normTag(tag))) draft.tags = [...cur, tag];
   if(which==='note') renderNoteForm(); else renderQuizForm();
 }
-function filterNotesByTag(key){
-  notesSearch = '#' + key;
+/* Lessons and free notes share one list, so both tag chips filter that
+   list. Quizzes have their own list under กิจกรรม, so theirs filters that. */
+function filterReadByTag(key){
+  readSearch = '#' + key;
+  readFilter = 'all';
   notesState = {mode:'list'};
-  renderNotes();
+  journalState = {mode:'list'};
   gotoHub('read');
+  renderReadList();
 }
+function filterNotesByTag(key){ filterReadByTag(key); }
+function filterJournalByTag(key){ filterReadByTag(key); }
 function filterQuizzesByTag(key){
   quizzesSearch = '#' + key;
   quizzesState = {mode:'list'};
-  renderQuizzes();
   gotoHub('activities');
+  renderQuizLauncher();
 }
 
 function mdToHtml(md){
@@ -2132,7 +2141,7 @@ function renderHome(){
         <div class="tag-row">
           ${tags.map(t=>`
             <button type="button" class="tag-chip counted" onclick="filterNotesByTag('${escapeHtml(t.key).replace(/'/g,"\\'")}')">
-              #${escapeHtml(t.tag)}<span class="tag-count">${t.notes + t.quizzes}</span>
+              #${escapeHtml(t.tag)}<span class="tag-count">${t.total}</span>
             </button>`).join('')}
         </div>`;
     })()}
@@ -2164,31 +2173,6 @@ function renderHome(){
 /* =========================================================
    NOTES
    ========================================================= */
-function setFilterNotes(key){ notesFilter = key; renderNotes(); }
-function setSearchNotes(value){
-  notesSearch = value;
-  renderNotes();
-  const input = document.getElementById('notes-search-input');
-  if(input){ input.focus(); const p = input.value.length; input.setSelectionRange(p,p); }
-}
-function noteMatchesSearch(n, q){
-  const { tags, text } = splitQuery(q);
-  if(tags.length && !tags.every(k=> hasTag(n, k))) return false;
-  if(!text) return true;
-  if((n.title||'').toLowerCase().includes(text)) return true;
-  if(itemTags(n).some(t=> normTag(t).includes(text))) return true;
-  if(n.format==='vocab'){
-    return (n.entries||[]).some(e=> (e.word||'').toLowerCase().includes(text) || (e.meaning||'').toLowerCase().includes(text));
-  }
-  return (n.content||'').toLowerCase().includes(text);
-}
-function quizMatchesSearch(qz, q){
-  const { tags, text } = splitQuery(q);
-  if(tags.length && !tags.every(k=> hasTag(qz, k))) return false;
-  if(!text) return true;
-  if((qz.title||'').toLowerCase().includes(text)) return true;
-  return itemTags(qz).some(t=> normTag(t).includes(text));
-}
 
 function openNewNoteForm(){
   draftNote = { title:'', lang:'en', format:'freeform', content:'', tags:[], entries:[{id:uid(),word:'',reading:'',meaning:'',example:''}] };
@@ -2418,54 +2402,9 @@ function renderNotesImpl(){
       ${relatedHtml(note, 'note')}`;
     return;
   }
-
-  if(notes.length === 0){
-    el.innerHTML = `
-      <div class="empty">
-        <div class="doodle">📘</div>
-        <p>ยังไม่มีบทเรียนในหน้านี้ เริ่มเพิ่มบทเรียนหรือคำศัพท์แรกของคุณได้เลย</p>
-        <button class="btn btn-primary" onclick="openNewNoteForm()">+ เพิ่มบทเรียนใหม่</button>
-      </div>`;
-    return;
-  }
-  const byLang = notesFilter==='all' ? notes : notes.filter(n=>(n.lang||'en')===notesFilter);
-  const filtered = byLang.filter(n=> noteMatchesSearch(n, notesSearch));
-  const sorted = [...filtered].sort((a,b)=> new Date(b.updatedAt) - new Date(a.updatedAt));
-  el.innerHTML = `
-    <div class="list-head">
-      <h2>บทเรียนทั้งหมด (${notes.length})</h2>
-      <button class="btn btn-primary btn-sm" onclick="openNewNoteForm()">+ เพิ่มบทเรียนใหม่</button>
-    </div>
-    <input type="text" class="search-input" id="notes-search-input" placeholder="ค้นหาบทเรียน..." value="${escapeHtml(notesSearch)}" oninput="setSearchNotes(this.value)">
-    ${langChipsRow(notesFilter, 'setFilterNotes')}
-    ${sorted.length===0 ? `<div class="empty"><p>ไม่พบบทเรียนที่ตรงกับที่ค้นหา</p></div>` : `
-    <div class="cards">
-      ${sorted.map(n=>{
-        const snippet = n.format==='vocab'
-          ? `${n.entries.length} คำศัพท์ · ${n.entries.slice(0,3).map(e=>e.word).join(', ')}`
-          : stripMd(n.content).slice(0,80);
-        return `
-        <div class="card" onclick="notesState={mode:'detail', id:'${n.id}'}; renderNotes();">
-          <div class="card-top">
-            <p class="card-title">${escapeHtml(n.title || 'ไม่มีหัวข้อ')}${langBadge(n.lang||'en')}${n.completed?'<span class="check-mark">✓</span>':''}</p>
-          </div>
-          <p class="card-snippet">${escapeHtml(snippet)}</p>
-          <p class="card-meta">${fmtShortDate(n.updatedAt)}${itemTags(n).length ? ' · ' + itemTags(n).map(t=>'#'+escapeHtml(String(t).replace(/^#+/,''))).join(' ') : ''}</p>
-        </div>`;
-      }).join('')}
-    </div>`}`;
+  // Nothing else to draw: the list case is renderReadList's job.
 }
 
-/* =========================================================
-   QUIZZES
-   ========================================================= */
-function setFilterQuizzes(key){ quizzesFilter = key; renderQuizzes(); }
-function setSearchQuizzes(value){
-  quizzesSearch = value;
-  renderQuizzes();
-  const input = document.getElementById('quizzes-search-input');
-  if(input){ input.focus(); const p = input.value.length; input.setSelectionRange(p,p); }
-}
 const QUIZ_POINTS_PER_CORRECT = 5;
 function newDraftQuiz(){ return { title:'', lang:'en', tags:[], questions:[ {text:'', options:['',''], correct:0} ] }; }
 
@@ -2477,37 +2416,7 @@ function renderQuizzesImpl(){
   if(quizzesState.mode === 'take'){ renderQuizTake(); return; }
   if(quizzesState.mode === 'result'){ renderQuizResult(); return; }
 
-  if(quizzes.length === 0){
-    el.innerHTML = `
-      <div class="empty">
-        <div class="doodle">🖊️</div>
-        <p>ยังไม่มีแบบทดสอบ สร้างแบบทดสอบแรกเพื่อเริ่มทบทวนได้เลย</p>
-        <button class="btn btn-primary" onclick="openNewQuizForm()">+ สร้างแบบทดสอบใหม่</button>
-      </div>`;
-    return;
-  }
-  const byLang = quizzesFilter==='all' ? quizzes : quizzes.filter(q=>(q.lang||'en')===quizzesFilter);
-  const filtered = byLang.filter(q=> quizMatchesSearch(q, quizzesSearch));
-  el.innerHTML = `
-    <div class="list-head">
-      <h2>แบบทดสอบทั้งหมด (${quizzes.length})</h2>
-      <button class="btn btn-primary btn-sm" onclick="openNewQuizForm()">+ สร้างแบบทดสอบใหม่</button>
-    </div>
-    <input type="text" class="search-input" id="quizzes-search-input" placeholder="ค้นหาแบบทดสอบ..." value="${escapeHtml(quizzesSearch)}" oninput="setSearchQuizzes(this.value)">
-    ${langChipsRow(quizzesFilter, 'setFilterQuizzes')}
-    ${filtered.length===0 ? `<div class="empty"><p>ไม่พบแบบทดสอบที่ตรงกับที่ค้นหา</p></div>` : `
-    <div class="cards">
-      ${filtered.map(q=>`
-        <div class="card quiz-card" onclick="quizzesState={mode:'detail', id:'${q.id}'}; renderQuizzes();">
-          <div class="card-top">
-            <div>
-              <p class="card-title">${escapeHtml(q.title)}${langBadge(q.lang||'en')}</p>
-              <p class="card-meta">${q.questions.length} ข้อ${q.lastAttemptDate ? ' · ทำล่าสุด '+fmtShortDate(q.lastAttemptDate) : ''}${itemTags(q).length ? ' · ' + itemTags(q).map(t=>'#'+escapeHtml(String(t).replace(/^#+/,''))).join(' ') : ''}</p>
-            </div>
-            ${q.bestScore!=null ? `<div class="stamp-badge">${q.bestScore}/${q.bestTotal}</div>` : ''}
-          </div>
-        </div>`).join('')}
-    </div>`}`;
+  // Nothing else to draw: the list case is renderQuizLauncher's job.
 }
 
 function openNewQuizForm(){
@@ -2830,26 +2739,6 @@ function confirmDeleteJournal(id, btnEl){
   });
 }
 
-function journalMatchesSearch(j, q){
-  const { tags, text } = splitQuery(q);
-  if(tags.length && !tags.every(k=> hasTag(j, k))) return false;
-  if(!text) return true;
-  if((j.title||'').toLowerCase().includes(text)) return true;
-  if(itemTags(j).some(t=> normTag(t).includes(text))) return true;
-  return (j.content||'').toLowerCase().includes(text);
-}
-function setSearchJournal(value){
-  journalSearch = value;
-  renderJournal();
-  const input = document.getElementById('journal-search-input');
-  if(input){ input.focus(); const p = input.value.length; input.setSelectionRange(p,p); }
-}
-function filterJournalByTag(key){
-  journalSearch = '#' + key;
-  journalState = {mode:'list'};
-  renderJournal();
-  gotoHub('read');
-}
 
 function renderJournal(){ renderHub(); pushHistoryState(); }
 function renderJournalImpl(){
@@ -2869,49 +2758,12 @@ function renderJournalImpl(){
       <div class="row-actions" style="margin-top:16px;">
         <button class="btn btn-ghost" onclick="openEditJournalForm('${j.id}')">แก้ไข</button>
         <button class="btn btn-danger" id="del-journal-btn" onclick="confirmDeleteJournal('${j.id}', this)">ลบโน้ตนี้</button>
-      </div>`;
+      </div>
+      ${relatedHtml(j, 'journal')}`;
     return;
   }
 
-  // Unread notifications surface here too, not just on the home board.
-  const unread = unreadCount();
-  const strip = unread ? `
-    <div class="notif-strip">
-      <span>มีแจ้งเตือนใหม่ ${unread} รายการ</span>
-      <button class="btn btn-ghost btn-sm" onclick="switchTab('home')">ดูบอร์ด</button>
-    </div>` : '';
-
-  if(journal.length === 0){
-    el.innerHTML = strip + `
-      <div class="empty">
-        <div class="doodle">🗒️</div>
-        <p>ยังไม่มีโน้ตในห้องนี้ เก็บโน้ตเกม สูตรอาหาร หรือไอเดียต่างๆ ไว้ที่นี่ได้เลย</p>
-        <button class="btn btn-primary" onclick="openNewJournalForm()">+ เพิ่มโน้ตแรก</button>
-      </div>`;
-    return;
-  }
-  const filtered = journal.filter(j=> journalMatchesSearch(j, journalSearch));
-  const sorted = [...filtered].sort((a,b)=> new Date(b.updatedAt) - new Date(a.updatedAt));
-  el.innerHTML = strip + `
-    <div class="list-head">
-      <h2>โน้ตทั้งหมด (${journal.length})</h2>
-      <button class="btn btn-primary btn-sm" onclick="openNewJournalForm()">+ เพิ่มโน้ตใหม่</button>
-    </div>
-    <input type="text" class="search-input" id="journal-search-input" placeholder="ค้นหาโน้ต..." value="${escapeHtml(journalSearch)}" oninput="setSearchJournal(this.value)">
-    ${sorted.length===0 ? `<div class="empty"><p>ไม่พบโน้ตที่ตรงกับที่ค้นหา</p></div>` : `
-    <div class="cards">
-      ${sorted.map(j=>{
-        const snippet = stripMd(j.content).slice(0,80);
-        return `
-        <div class="card" onclick="journalState={mode:'detail', id:'${j.id}'}; renderJournal();">
-          <div class="card-top">
-            <p class="card-title">${escapeHtml(j.title || 'ไม่มีหัวข้อ')}</p>
-          </div>
-          <p class="card-snippet">${escapeHtml(snippet)}</p>
-          <p class="card-meta">${fmtShortDate(j.updatedAt)}${itemTags(j).length ? ' · ' + itemTags(j).map(t=>'#'+escapeHtml(String(t).replace(/^#+/,''))).join(' ') : ''}</p>
-        </div>`;
-      }).join('')}
-    </div>`}`;
+  // Nothing else to draw: the list case is renderReadList's job.
 }
 
 /* =========================================================
@@ -3225,6 +3077,14 @@ function renderMarketImpl(){
    form screens; this is the shared front door to them.
    ========================================================= */
 let readSearch = '';
+let readFilter = 'all';                // 'all' | 'en' | 'zh' | 'note'
+const READ_FILTERS = [
+  { key:'all',  label:'ทั้งหมด', cls:'all' },
+  { key:'en',   label:'อังกฤษ',  cls:'en'  },
+  { key:'zh',   label:'จีน',     cls:'zh'  },
+  { key:'note', label:'โน้ต',    cls:'all' },
+];
+function setReadFilter(key){ readFilter = key; renderReadList(); }
 function setReadSearch(value){
   readSearch = value;
   renderReadList();
@@ -3243,12 +3103,16 @@ function readItems(){
     kind:'note', id:j.id, title:j.title, tags:itemTags(j), updatedAt:j.updatedAt,
     completed:false, snippet: stripMd(j.content).slice(0,80)
   }));
-  const q = String(readSearch||'').toLowerCase().trim();
-  const all = [...lessons, ...free].filter(it=>{
-    if(!q) return true;
-    if(String(it.title||'').toLowerCase().includes(q)) return true;
-    if(String(it.snippet||'').toLowerCase().includes(q)) return true;
-    return it.tags.some(t=> normTag(t).includes(q.replace(/^#/,'')));
+  const pool = readFilter === 'note' ? free
+             : readFilter === 'all'  ? [...lessons, ...free]
+             : lessons.filter(l=> l.lang === readFilter);
+  // "#ทักทาย hello" means both: the tag AND the words.
+  const { tags:qTags, text:qText } = splitQuery(readSearch);
+  const all = pool.filter(it=>{
+    if(qTags.length && !qTags.every(k=> it.tags.some(t=> normTag(t).includes(k)))) return false;
+    if(!qText) return true;
+    return String(it.title||'').toLowerCase().includes(qText)
+        || String(it.snippet||'').toLowerCase().includes(qText);
   });
   return all.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
 }
@@ -3281,6 +3145,8 @@ function renderReadList(){
       </span>
     </div>
     ${total ? `<input type="text" class="search-input" id="read-search-input" placeholder="ค้นหาเนื้อหา..." value="${escapeHtml(readSearch)}" oninput="setReadSearch(this.value)">` : ''}
+    ${total ? `<div class="filters">${READ_FILTERS.map(f=>`
+        <button type="button" class="lang-chip ${f.cls} ${readFilter===f.key?'active':''}" onclick="setReadFilter('${f.key}')">${f.label}</button>`).join('')}</div>` : ''}
     ${total===0 ? `
       <div class="empty">
         <div class="doodle">📚</div>
@@ -3304,16 +3170,32 @@ function renderReadList(){
 }
 
 /* Quizzes live under the activities section: taking one earns points. */
+function setSearchQuizzes(value){
+  quizzesSearch = value;
+  renderQuizLauncher();
+  const input = document.getElementById('quiz-search-input');
+  if(input){ input.focus(); const p = input.value.length; input.setSelectionRange(p,p); }
+}
+function quizMatchesSearch(q, term){
+  const { tags:qTags, text:qText } = splitQuery(term);
+  if(qTags.length && !qTags.every(k=> itemTags(q).some(t=> normTag(t).includes(k)))) return false;
+  if(!qText) return true;
+  return String(q.title||'').toLowerCase().includes(qText)
+      || (q.questions||[]).some(x=> String(x.text||'').toLowerCase().includes(qText));
+}
 function renderQuizLauncher(){
   const el = document.getElementById('quiz-launcher');
   if(!el) return;
-  const list = [...quizzes].sort((a,b)=> String(a.title||'').localeCompare(String(b.title||'')));
+  const list = quizzes.filter(q=> quizMatchesSearch(q, quizzesSearch))
+    .sort((a,b)=> String(a.title||'').localeCompare(String(b.title||'')));
   el.innerHTML = `
     <div class="list-head" style="margin-top:26px;">
       <h2>แบบทดสอบ</h2>
       <button class="btn btn-primary btn-sm" onclick="openNewQuizForm()">+ เพิ่มแบบทดสอบ</button>
     </div>
-    ${list.length===0 ? `
+    ${quizzes.length ? `<input type="text" class="search-input" id="quiz-search-input" placeholder="ค้นหาแบบทดสอบ..." value="${escapeHtml(quizzesSearch)}" oninput="setSearchQuizzes(this.value)">` : ''}
+    ${quizzes.length && list.length===0 ? `<div class="empty"><p>ไม่พบแบบทดสอบที่ตรงกับที่ค้นหา</p></div>` : ''}
+    ${quizzes.length===0 ? `
       <p style="color:var(--ink-soft); font-size:13.5px;">ยังไม่มีแบบทดสอบ — สร้างไว้ทดสอบตัวเองแล้วได้แต้มตามจำนวนข้อที่ตอบถูก</p>` : `
       <div class="cards">
         ${list.map(q=>`
