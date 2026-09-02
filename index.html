@@ -283,6 +283,8 @@
   }
   .points-badge.plus{ background:rgba(63,107,79,.16); color:var(--green-check); }
   .kind-chip.repeat{ border-color:var(--highlighter); color:var(--highlighter); }
+  .kind-chip.hot{ border-color:var(--red-pen); color:var(--red-pen); font-weight:700; }
+  .card.is-locked{ opacity:.6; }
   .card.is-done{ opacity:.62; }
   .field-hint{ font-size:11.5px; color:var(--ink-soft); margin:6px 0 0; }
   .points-badge.minus{ background:rgba(178,58,46,.14); color:var(--red-pen); }
@@ -2795,6 +2797,7 @@ function cancelActivityForm(){
 }
 function setDraftActivityKind(k){ draftActivity.kind = k; renderNotebookForm(); }
 function setDraftActivityRepeat(k){ draftActivity.repeat = k; renderNotebookForm(); }
+function setDraftItemCycle(k){ draftItem.cycle = k; renderMarketForm(); }
 
 function saveActivityForm(){
   const title = (draftActivity.title||'').trim();
@@ -3095,7 +3098,59 @@ function cashDeskHtml(){
     </div>`;
 }
 
-function newDraftItem(){ return { name:'', desc:'', price:100 }; }
+/* An item can come round on a cycle instead of always being on the shelf.
+   The clock starts from the last time you took it, so "ทุกปี" means you
+   can claim it once a year — no extra bookkeeping, the redemptions we
+   already record are the record. */
+const MARKET_CYCLES = [
+  { key:'always',   label:'ตลอดเวลา', months:0  },
+  { key:'monthly',  label:'ทุกเดือน',  months:1  },
+  { key:'biannual', label:'ทุก 6 เดือน', months:6 },
+  { key:'yearly',   label:'ทุกปี',     months:12 },
+  { key:'random',   label:'สุ่ม',      months:0  },
+];
+const RANDOM_APPEAR_PERCENT = 25;      // roughly one day in four
+function cycleOf(it){ const k = it && it.cycle; return MARKET_CYCLES.some(c=>c.key===k) ? k : 'always'; }
+function cycleLabel(k){ const f = MARKET_CYCLES.find(c=>c.key===k); return f ? f.label : 'ตลอดเวลา'; }
+function cycleMonths(k){ const f = MARKET_CYCLES.find(c=>c.key===k); return f ? f.months : 0; }
+
+function addMonthsToKey(dateStr, months){
+  const [y,m,d] = String(dateStr).split('-').map(Number);
+  if(!y || !m || !d) return dateStr;
+  const dt = new Date(y, m-1, d);
+  dt.setMonth(dt.getMonth() + months);
+  return dayKeyOf(dt);
+}
+function lastRedeemedDay(itemId){
+  const days = wallet.redemptions.filter(r=>r.itemId===itemId).map(r=>isoToDayKey(r.redeemedAt)).filter(Boolean).sort();
+  return days.length ? days[days.length-1] : '';
+}
+/* Same answer on every device and all day long, without storing anything:
+   the roll is a hash of the item and today's date. */
+function hashInt(str){
+  let h = 2166136261;
+  for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function appearsToday(itemId, dayKey){ return (hashInt(itemId + '@' + dayKey) % 100) < RANDOM_APPEAR_PERCENT; }
+
+function itemAvailability(it){
+  const cyc = cycleOf(it);
+  const today = todayInputValue();
+  if(cyc === 'always') return { ready:true, cycle:cyc };
+  const last = lastRedeemedDay(it.id);
+  if(cyc === 'random'){
+    if(last === today) return { ready:false, cycle:cyc, reason:'แลกไปแล้ววันนี้' };
+    return appearsToday(it.id, today)
+      ? { ready:true, cycle:cyc, hot:true }
+      : { ready:false, cycle:cyc, reason:'วันนี้ยังไม่โผล่' };
+  }
+  if(!last) return { ready:true, cycle:cyc };
+  const next = addMonthsToKey(last, cycleMonths(cyc));
+  return next <= today ? { ready:true, cycle:cyc } : { ready:false, cycle:cyc, next };
+}
+
+function newDraftItem(){ return { name:'', desc:'', price:100, cycle:'always' }; }
 
 function openNewItemForm(){
   draftItem = newDraftItem();
@@ -3105,7 +3160,7 @@ function openNewItemForm(){
 }
 function openEditItemForm(id){
   const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
-  draftItem = { name:it.name, desc:it.desc||'', price:it.price };
+  draftItem = { name:it.name, desc:it.desc||'', price:it.price, cycle:cycleOf(it) };
   editingItemId = id; marketState = {mode:'form'};
   marketFormSnapshot = JSON.stringify(draftItem);
   renderMarket();
@@ -3118,11 +3173,12 @@ function saveItemForm(){
   const name = (draftItem.name||'').trim();
   if(!name){ showToast('ใส่ชื่อไอเทมก่อนบันทึก'); return; }
   const price = Math.max(1, Math.round(Number(draftItem.price) || 0));
+  const cycle = cycleOf(draftItem);
   if(editingItemId){
     const it = wallet.marketItems.find(x=>x.id===editingItemId);
-    Object.assign(it, { name, desc:(draftItem.desc||'').trim(), price });
+    Object.assign(it, { name, desc:(draftItem.desc||'').trim(), price, cycle });
   }else{
-    wallet.marketItems.push({ id:uid(), name, desc:(draftItem.desc||'').trim(), price, createdAt:new Date().toISOString() });
+    wallet.marketItems.push({ id:uid(), name, desc:(draftItem.desc||'').trim(), price, cycle, createdAt:new Date().toISOString() });
   }
   saveWallet();
   marketFormSnapshot = null; editingItemId = null;
@@ -3145,6 +3201,11 @@ function confirmDeleteItem(id, btnEl){
 }
 function redeemItem(id){
   const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
+  const avail = itemAvailability(it);
+  if(!avail.ready){
+    showToast(avail.next ? 'ยังไม่ถึงรอบ กลับมาอีกครั้ง ' + avail.next : (avail.reason || 'ยังแลกไม่ได้'));
+    return;
+  }
   if(!spendPoints(it.price, 'แลก: ' + it.name, 'market')){
     showToast('คะแนนไม่พอ ต้องมีอีก ' + fmtPoints(it.price - wallet.balance) + ' แต้ม');
     return;
@@ -3173,6 +3234,16 @@ function renderMarketForm(){
         <label>ราคา (แต้ม)</label>
         <input type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(draftItem.price))}" oninput="draftItem.price=this.value">
       </div>
+      <div class="field">
+        <label>รอบการมา</label>
+        <div class="toggle-group">
+          ${MARKET_CYCLES.map(c=>`<button type="button" class="toggle-btn ${cycleOf(draftItem)===c.key?'active':''}" onclick="setDraftItemCycle('${c.key}')">${c.label}</button>`).join('')}
+        </div>
+        ${cycleOf(draftItem)==='random'
+          ? `<p class="field-hint">โผล่แบบสุ่ม ราว ${RANDOM_APPEAR_PERCENT}% ของวัน — วันไหนโผล่ก็แลกได้วันนั้น</p>`
+          : cycleOf(draftItem)!=='always'
+          ? `<p class="field-hint">แลกได้ครั้งเดียวต่อรอบ นับจากวันที่แลกล่าสุด</p>` : ''}
+      </div>
     </div>
     <div class="row-actions">
       <button class="btn btn-primary" onclick="saveItemForm()">บันทึกไว้</button>
@@ -3187,7 +3258,11 @@ function renderMarketImpl(){
 
   if(marketState.mode === 'form'){ renderMarketForm(); return; }
 
-  const items = [...wallet.marketItems].sort((a,b)=> a.price - b.price);
+  // On the shelf first, then by price; a random item that turned up leads.
+  const items = [...wallet.marketItems].sort((a,b)=>{
+    const A = itemAvailability(a), B = itemAvailability(b);
+    return (B.hot?1:0) - (A.hot?1:0) || (B.ready?1:0) - (A.ready?1:0) || a.price - b.price;
+  });
   const recent = [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt)).slice(0,5);
 
   el.innerHTML = cashDeskHtml() + `
@@ -3204,16 +3279,21 @@ function renderMarketImpl(){
       <div class="cards">
         ${items.map(it=>{
           const affordable = wallet.balance >= it.price;
+          const av = itemAvailability(it);
+          const cyc = cycleOf(it);
+          const label = !av.ready ? (av.next ? 'กลับมา ' + escapeHtml(av.next) : escapeHtml(av.reason || 'ยังแลกไม่ได้'))
+                      : affordable ? 'แลกเลย'
+                      : 'ยังขาด ' + fmtPoints(it.price - wallet.balance) + ' แต้ม';
           return `
-          <div class="card">
+          <div class="card ${av.ready ? '' : 'is-locked'}">
             <div class="card-top">
-              <p class="card-title">${escapeHtml(it.name)}</p>
+              <p class="card-title">${escapeHtml(it.name)}${cyc!=='always' ? `<span class="kind-chip ${av.hot?'hot':'repeat'}">${av.hot ? 'โผล่วันนี้!' : cycleLabel(cyc)}</span>` : ''}</p>
               <span class="price-tag">${fmtPoints(it.price)} แต้ม</span>
             </div>
             ${it.desc ? `<p class="card-snippet">${escapeHtml(it.desc)}</p>` : ''}
             <div class="item-card-foot">
-              <button class="btn ${affordable?'btn-primary':'btn-ghost'} btn-sm" onclick="redeemItem('${it.id}')" ${affordable?'':'title="คะแนนยังไม่พอ"'}>
-                ${affordable ? 'แลกเลย' : 'ยังขาด ' + fmtPoints(it.price - wallet.balance) + ' แต้ม'}
+              <button class="btn ${av.ready && affordable ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="redeemItem('${it.id}')">
+                ${label}
               </button>
               <span class="row-actions">
                 <button class="btn btn-ghost btn-sm" onclick="openEditItemForm('${it.id}')">แก้ไข</button>
