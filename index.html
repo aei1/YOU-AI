@@ -296,10 +296,11 @@
     background:var(--paper-shade); border:1px solid var(--paper-line); color:var(--ink-soft);
   }
   /* Sticky-note notification board */
-  .sticky-board{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-bottom:6px; }
+  .sticky-board{ display:grid; grid-template-columns:repeat(auto-fill, minmax(232px, 1fr)); gap:16px; margin-bottom:6px; }
   .sticky{
-    position:relative; padding:14px 12px 12px; border-radius:3px; min-height:104px;
-    display:flex; flex-direction:column; gap:5px;
+    position:relative; padding:18px 14px 12px; border-radius:3px; min-height:118px;
+    display:flex; flex-direction:column; gap:6px; cursor:pointer; text-align:left;
+    border:none; font-family:var(--font-body); width:100%;
     box-shadow:0 6px 14px -8px rgba(0,0,0,.5);
     transform:rotate(var(--tilt,-1deg)); transform-origin:center top;
     transition:transform .14s ease, box-shadow .14s ease;
@@ -316,12 +317,30 @@
   .sticky.n-note{ background:#CBD8E8; }
   .sticky.n-claude{ background:#DCCBE8; }
   .sticky.is-read{ opacity:.55; }
-  .sticky-title{ font-weight:700; font-size:14px; color:#2A2620; margin:0; line-height:1.35; }
-  .sticky-body{ font-size:12.5px; color:#4A443A; margin:0; line-height:1.45; flex:1; }
+  .sticky-title{ font-weight:700; font-size:14.5px; color:#2A2620; margin:0; line-height:1.35; word-break:break-word; }
+  .sticky-body{ font-size:13px; color:#4A443A; margin:0; line-height:1.5; flex:1; word-break:break-word; }
+  .sticky-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .sticky-time{ font-family:var(--font-mono); font-size:10.5px; color:#6B6357; margin:0; }
+  .sticky-open{ font-size:11px; font-weight:600; color:#3F5A46; margin:0; white-space:nowrap; }
+
+  /* Full text of a notification that has nothing to jump to */
+  .notif-sheet{
+    position:fixed; inset:0; z-index:120; background:rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; padding:22px;
+  }
+  .notif-sheet-card{
+    width:100%; max-width:420px; max-height:80vh; overflow-y:auto;
+    background:var(--paper); border-radius:14px; padding:18px 18px 16px;
+    box-shadow:0 24px 60px -18px rgba(0,0,0,.7);
+  }
+  .notif-sheet-kind{ font-family:var(--font-mono); font-size:11px; color:var(--ink-soft); margin:0 0 6px; }
+  .notif-sheet-title{ font-size:17px; font-weight:700; color:var(--ink); margin:0 0 8px; }
+  .notif-sheet-body{ font-size:14px; color:var(--ink); margin:0 0 12px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+  .notif-sheet-time{ font-family:var(--font-mono); font-size:11px; color:var(--ink-soft); margin:0 0 14px; }
   .sticky-close{
-    position:absolute; top:5px; right:6px; width:20px; height:20px; line-height:1;
-    border:none; border-radius:50%; cursor:pointer; font-size:13px;
+    position:absolute; top:6px; right:7px; width:24px; height:24px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    border:none; border-radius:50%; cursor:pointer; font-size:15px;
     background:rgba(0,0,0,.06); color:#4A443A;
   }
   .sticky-close:active{ background:rgba(0,0,0,.14); }
@@ -1347,13 +1366,90 @@ function fmtPoints(n){ return (Number(n)||0).toLocaleString('th-TH'); }
    ========================================================= */
 const NOTIF_LIMIT = 30;
 function saveNotifications(){ scheduleSave(); }
-function pushNotification(kind, title, body){
-  notifications.unshift({ id:uid(), kind, title, body:body||'', createdAt:new Date().toISOString(), read:false });
+function pushNotification(kind, title, body, link){
+  notifications.unshift({ id:uid(), kind, title, body:body||'', link:link||null, createdAt:new Date().toISOString(), read:false });
   if(notifications.length > NOTIF_LIMIT) notifications.length = NOTIF_LIMIT;
   saveNotifications();
   // Refresh the two views that show notifications, so a note pinned from
   // the notebook or market is already there when you switch tabs.
   if(historyReady){ renderHome(); renderJournal(); }
+}
+/* A sticky note is a door, not a label: tapping it opens whatever it is
+   about. When there is nothing left to open — a plain reminder, or an
+   item since deleted — it shows its own full text instead, so a tap is
+   never a dead end. */
+let notifSheetId = null;
+function openNotification(id){
+  const n = notifications.find(x=>x.id===id);
+  if(!n) return;
+  markNotificationRead(id);
+  const l = n.link || {};
+  switch(l.type){
+    case 'lesson':
+      if(notes.some(x=>x.id===l.id)){
+        notesState = {mode:'detail', id:l.id}; journalState = {mode:'list'};
+        gotoHub('read'); renderNotes(); return;
+      }
+      break;
+    case 'journal':
+      if(journal.some(x=>x.id===l.id)){
+        journalState = {mode:'detail', id:l.id}; notesState = {mode:'list'};
+        gotoHub('read'); renderJournal(); return;
+      }
+      break;
+    case 'quiz':
+      if(quizzes.some(x=>x.id===l.id)){
+        quizzesState = {mode:'detail', id:l.id};
+        gotoHub('activities'); renderQuizzes(); return;
+      }
+      break;
+    case 'hub':
+      gotoHub(l.section === 'activities' ? 'activities' : 'read'); return;
+    case 'activity':
+      notebookState = {mode:'list'}; quizzesState = {mode:'list'};
+      gotoHub('activities'); return;
+    case 'market':
+      marketState = {mode:'list'}; switchTab('market'); renderMarket(); return;
+    case 'event':
+      if(l.date){ const [y,m] = String(l.date).split('-').map(Number); if(y && m) calCursor = {y, m:m-1}; calSelected = l.date; }
+      switchTab('home'); renderHome();
+      scrollToSelector('.cal-card'); return;
+    case 'chat':
+      switchTab('home'); renderHome();
+      scrollToSelector('.chat-card'); return;
+  }
+  notifSheetId = id;
+  renderHome();
+}
+function closeNotifSheet(ev){
+  if(ev && ev.target !== ev.currentTarget) return;   // only the backdrop closes it
+  notifSheetId = null;
+  renderHome();
+}
+function scrollToSelector(sel){
+  requestAnimationFrame(()=>{
+    const el = document.querySelector(sel);
+    if(el) el.scrollIntoView({ behavior:'smooth', block:'center' });
+  });
+}
+function notifSheetHtml(){
+  if(!notifSheetId) return '';
+  const n = notifications.find(x=>x.id===notifSheetId);
+  if(!n) return '';
+  const gone = n.link && n.link.type && ['lesson','journal','quiz'].includes(n.link.type);
+  return `
+    <div class="notif-sheet" onclick="closeNotifSheet(event)">
+      <div class="notif-sheet-card">
+        <p class="notif-sheet-kind">แจ้งเตือน</p>
+        <p class="notif-sheet-title">${escapeHtml(n.title)}</p>
+        <p class="notif-sheet-body">${escapeHtml(n.body) || '<span style="color:var(--ink-soft)">ไม่มีรายละเอียดเพิ่มเติม</span>'}</p>
+        <p class="notif-sheet-time">${fmtShortDate(n.createdAt)}${gone ? ' · สิ่งที่อ้างถึงถูกลบไปแล้ว' : ''}</p>
+        <div class="row-actions">
+          <button class="btn btn-primary btn-sm" onclick="notifSheetId=null; renderHome();">ปิด</button>
+          <button class="btn btn-danger btn-sm" onclick="notifSheetId=null; dismissNotification('${n.id}', event)">ลบแจ้งเตือนนี้</button>
+        </div>
+      </div>
+    </div>`;
 }
 function unreadCount(){ return notifications.filter(n=>!n.read).length; }
 function markNotificationRead(id){
@@ -1384,7 +1480,7 @@ function maybeDailyNudge(){
   const pending = computeSuggestions();
   if(!pending.length) return;
   pushNotification('nudge', 'ยังมี ' + pending.length + ' อย่างค้างอยู่',
-    pending.slice(0,2).map(p=>p.title).join(' · '));
+    pending.slice(0,2).map(p=>p.title).join(' · '), {type:'hub', section:'read'});
 }
 
 /* ---------------- Tabs ---------------- */
@@ -1563,6 +1659,20 @@ function suggestionClickAttr(item){
     : `notesState={mode:'detail', id:'${item.id}'}; renderNotes(); gotoHub('read');`;
 }
 
+function stickyOpenLabel(n){
+  switch((n.link||{}).type){
+    case 'lesson':  return 'เปิดบทเรียน';
+    case 'journal': return 'เปิดโน้ต';
+    case 'quiz':    return 'เปิดแบบฝึกหัด';
+    case 'activity':return 'ดูกิจกรรม';
+    case 'market':  return 'ไปมาร์เก็ต';
+    case 'event':   return 'ดูในปฏิทิน';
+    case 'chat':    return 'ดูข้อความ';
+    case 'hub':     return 'เปิดดู';
+    default:        return 'อ่านเต็ม';
+  }
+}
+
 /* The sticky-note board: newest first, unread in full colour. */
 function stickyBoardHtml(){
   const unread = unreadCount();
@@ -1581,13 +1691,16 @@ function stickyBoardHtml(){
     </div>
     <div class="sticky-board">
       ${notifications.map((n,i)=>`
-        <div class="sticky n-${n.kind} ${n.read?'is-read':''}" style="--tilt:${(i%3)-1}deg;" onclick="markNotificationRead('${n.id}')">
-          <button class="sticky-close" onclick="dismissNotification('${n.id}', event)" aria-label="ลบแจ้งเตือน">×</button>
+        <button type="button" class="sticky n-${n.kind} ${n.read?'is-read':''}" style="--tilt:${(i%3)-1}deg;" onclick="openNotification('${n.id}')">
+          <span class="sticky-close" role="button" tabindex="0" onclick="dismissNotification('${n.id}', event)" aria-label="ลบแจ้งเตือน">×</span>
           <p class="sticky-title">${escapeHtml(n.title)}</p>
           <p class="sticky-body">${escapeHtml(n.body)}</p>
-          <p class="sticky-time">${fmtShortDate(n.createdAt)}</p>
-        </div>`).join('')}
-    </div>`;
+          <span class="sticky-foot">
+            <span class="sticky-time">${fmtShortDate(n.createdAt)}</span>
+            <span class="sticky-open">${stickyOpenLabel(n)} ›</span>
+          </span>
+        </button>`).join('')}
+    </div>` + notifSheetHtml();
 }
 
 /* =========================================================
@@ -1719,31 +1832,35 @@ function applyClaudeAction(a){
       if(a.replyTo){ const m = messages.find(x=>x.id===a.replyTo); if(m) m.answered = true; }
       else messages.filter(m=>m.from==='user').forEach(m=> m.answered = true);
       if(messages.length > MESSAGE_LIMIT) messages = messages.slice(-MESSAGE_LIMIT);
-      pushNotification('claude', 'Claude ตอบกลับแล้ว', a.text.slice(0,90));
+      pushNotification('claude', 'Claude ตอบกลับแล้ว', a.text, {type:'chat'});
       return true;
     }
-    case 'note':
-      journal.push({ id:uid(), title:a.title || 'โน้ตจาก Claude', content:a.content || '', tags:parseTags((a.tags||[]).join(' ')), updatedAt:at });
-      pushNotification('claude', 'Claude เพิ่มโน้ตให้', a.title || '');
+    case 'note': {
+      const jid = uid();
+      journal.push({ id:jid, title:a.title || 'โน้ตจาก Claude', content:a.content || '', tags:parseTags((a.tags||[]).join(' ')), updatedAt:at });
+      pushNotification('claude', 'Claude เพิ่มโน้ตให้', a.title || '', {type:'journal', id:jid});
       return true;
-    case 'lesson':
-      notes.push({ id:uid(), title:a.title || 'บทเรียนจาก Claude', lang:a.lang === 'zh' ? 'zh' : 'en', format:'freeform',
+    }
+    case 'lesson': {
+      const nid = uid();
+      notes.push({ id:nid, title:a.title || 'บทเรียนจาก Claude', lang:a.lang === 'zh' ? 'zh' : 'en', format:'freeform',
                    content:a.content || '', tags:parseTags((a.tags||[]).join(' ')), entries:[], completed:false, updatedAt:at });
-      pushNotification('claude', 'Claude เพิ่มบทเรียนให้', a.title || '');
+      pushNotification('claude', 'Claude เพิ่มบทเรียนให้', a.title || '', {type:'lesson', id:nid});
       return true;
+    }
     case 'event':
       events.push({ id:uid(), date:a.date || todayInputValue(), title:a.title || 'อีเวนต์จาก Claude', note:a.note || '', createdAt:at });
-      pushNotification('claude', 'Claude เพิ่มอีเวนต์ในปฏิทิน', `${a.date || ''} · ${a.title || ''}`);
+      pushNotification('claude', 'Claude เพิ่มอีเวนต์ในปฏิทิน', `${a.date || ''} · ${a.title || ''}`, {type:'event', date:a.date || todayInputValue()});
       return true;
     case 'notify':
-      pushNotification('claude', a.title || 'ข้อความจาก Claude', a.body || '');
+      pushNotification('claude', a.title || 'ข้อความจาก Claude', a.body || '');   // no target: opens its own full text
       return true;
     case 'activity': {
       const pts = Math.max(0, Math.round(Number(a.points) || 0));
       wallet.activities.push({ id:uid(), title:a.title || 'กิจกรรมจาก Claude', kind:a.kind || 'other', points:pts, date:a.date || todayInputValue(), createdAt:at });
       if(pts) addPoints(pts, a.title || 'กิจกรรมจาก Claude', 'notebook');
       else saveWallet();
-      pushNotification('claude', 'Claude บันทึกกิจกรรมให้', `${a.title || ''}${pts ? ' · +' + fmtPoints(pts) + ' แต้ม' : ''}`);
+      pushNotification('claude', 'Claude บันทึกกิจกรรมให้', `${a.title || ''}${pts ? ' · +' + fmtPoints(pts) + ' แต้ม' : ''}`, {type:'activity'});
       return true;
     }
     default: return false;
@@ -2191,7 +2308,7 @@ function toggleNoteCompleted(id){
   if(n.completed && !n.pointsAwarded){
     n.pointsAwarded = true;
     addPoints(LESSON_POINTS, 'อ่านจบ: ' + n.title, 'notebook');
-    pushNotification('points', '+' + fmtPoints(LESSON_POINTS) + ' แต้ม', 'อ่านจบ: ' + n.title);
+    pushNotification('points', '+' + fmtPoints(LESSON_POINTS) + ' แต้ม', 'อ่านจบ: ' + n.title, {type:'lesson', id:n.id});
     showToast('อ่านจบแล้ว +' + fmtPoints(LESSON_POINTS) + ' แต้ม');
   }
   saveNotes();
@@ -2584,7 +2701,7 @@ function submitQuiz(){
     q.pointsAwarded = true;
     const earned = score * QUIZ_POINTS_PER_CORRECT;
     addPoints(earned, 'ทำแบบทดสอบ: ' + q.title, 'notebook');
-    pushNotification('points', '+' + fmtPoints(earned) + ' แต้ม', `ทำแบบทดสอบ "${q.title}" ได้ ${score}/${total}`);
+    pushNotification('points', '+' + fmtPoints(earned) + ' แต้ม', `ทำแบบทดสอบ "${q.title}" ได้ ${score}/${total}`, {type:'quiz', id:q.id});
   }
   saveQuizzes();
   lastResult = { quizId:q.id, quizTitle:q.title, score, total, details };
@@ -2855,7 +2972,7 @@ function saveActivityForm(){
   }else{
     wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date, createdAt:new Date().toISOString() });
     addPoints(points, title, 'notebook');
-    pushNotification('points', '+' + fmtPoints(points) + ' แต้ม', title + ' · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม');
+    pushNotification('points', '+' + fmtPoints(points) + ' แต้ม', title + ' · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม', {type:'activity'});
     showToast('บันทึกแล้ว +' + fmtPoints(points) + ' แต้ม');
   }
   notebookFormSnapshot = null; editingActivityId = null;
@@ -3016,7 +3133,7 @@ function redeemItem(id){
   }
   wallet.redemptions.push({ id:uid(), itemId:it.id, name:it.name, price:it.price, redeemedAt:new Date().toISOString() });
   saveWallet();
-  pushNotification('market', 'แลก ' + it.name + ' สำเร็จ', '-' + fmtPoints(it.price) + ' แต้ม · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม');
+  pushNotification('market', 'แลก ' + it.name + ' สำเร็จ', '-' + fmtPoints(it.price) + ' แต้ม · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม', {type:'market'});
   renderMarket(); renderHome();
   showToast('แลก "' + it.name + '" แล้ว -' + fmtPoints(it.price) + ' แต้ม');
 }
