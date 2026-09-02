@@ -621,12 +621,24 @@
     .brand{font-size:27px;}
     .tab-btn{ padding:8px 2px 9px; font-size:12px; }
 
-    /* Prevent iOS Safari's auto-zoom-on-focus (triggers below 16px) */
-    .field input[type=text], .field textarea, .field select,
-    .search-input{ font-size:16px; }
-
     .vocab-grid{ grid-template-columns:1fr; }
     .opt-remove{ padding:6px 8px; font-size:15px; }
+  }
+
+  /* iOS Safari zooms the whole page in when you focus a control whose text
+     is under 16px, and only zooms back out by hand. So on a touch device
+     every control gets 16px — whatever its type, wherever it sits, in any
+     orientation. Listed out because each of these already sets its own
+     size, and this block is last so the ties fall this way. */
+  @media (pointer: coarse){
+    input, textarea, select,
+    .search-input,
+    .field input[type=text], .field textarea, .field select,
+    .vocab-block input[type=text],
+    .opt-row input[type=text],
+    .cash-row input, .rate-cell input{
+      font-size:16px;
+    }
   }
 </style>
 </head>
