@@ -245,6 +245,15 @@
   }
   .cash-row input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
   .cash-preview{margin:0 0 10px; font-family:var(--font-mono); font-size:15px; font-weight:600; color:var(--highlighter);}
+  .rate-row{display:flex; align-items:flex-end; gap:8px; margin-bottom:10px;}
+  .rate-cell{display:flex; flex-direction:column; gap:3px; flex:1; min-width:0;}
+  .rate-cell label{font-size:11px; color:var(--ink-soft);}
+  .rate-cell input{
+    width:100%; min-width:0; font-family:var(--font-mono); font-size:15px; padding:8px 9px;
+    border:1.5px solid var(--paper-line); border-radius:9px; background:var(--paper); color:var(--ink);
+  }
+  .rate-cell input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
+  .rate-eq{font-family:var(--font-mono); font-size:16px; color:var(--ink-soft); padding-bottom:9px;}
   .cash-total{margin:14px 0 8px; font-size:12.5px; color:var(--ink-soft);}
 
   /* Calendar on the home tab — one square per day, a dot per kind of event */
@@ -1351,9 +1360,19 @@ async function loadAll(){
    (spend). Every change goes through addPoints/spendPoints so the
    ledger stays the complete history of how the balance got here.
    ========================================================= */
+/* A rate is "N points = M money". Wallets saved before the money side
+   was settable only stored pointsPerUnit, which meant M was always 1. */
+function normalizeExchange(e){
+  e = (e && typeof e === 'object') ? e : {};
+  const rawPoints = e.points != null ? e.points : e.pointsPerUnit;
+  const points = Math.max(1, Math.round(Number(rawPoints) || 10));
+  const amount = Math.round(Math.max(0.01, Number(e.amount != null ? e.amount : 1) || 1) * 100) / 100;
+  const currency = String(e.currency || 'บาท').trim().slice(0, 12) || 'บาท';
+  return { points, amount, currency };
+}
 function emptyWallet(){
   return { balance:0, ledger:[], activities:[], marketItems:[], redemptions:[],
-           cashOuts:[], exchange:{ pointsPerUnit:10, currency:'บาท' },
+           cashOuts:[], exchange:{ points:10, amount:1, currency:'บาท' },
            lastModifiedAt:new Date().toISOString() };
 }
 function normalizeWallet(w){
@@ -1366,10 +1385,7 @@ function normalizeWallet(w){
     marketItems: Array.isArray(w.marketItems) ? w.marketItems : [],
     redemptions: Array.isArray(w.redemptions) ? w.redemptions : [],
     cashOuts: Array.isArray(w.cashOuts) ? w.cashOuts : [],
-    exchange: {
-      pointsPerUnit: Math.max(1, Math.round(Number(w.exchange && w.exchange.pointsPerUnit) || base.exchange.pointsPerUnit)),
-      currency: String((w.exchange && w.exchange.currency) || base.exchange.currency).slice(0, 12)
-    },
+    exchange: normalizeExchange(w.exchange),
     lastModifiedAt: w.lastModifiedAt || base.lastModifiedAt
   };
 }
@@ -3069,24 +3085,32 @@ let draftCash = { points:'' };
 let rateFormOpen = false;
 let draftRate = null;
 
-function exchangeRate(){ return (wallet && wallet.exchange) ? wallet.exchange : { pointsPerUnit:10, currency:'บาท' }; }
+function exchangeRate(){ return normalizeExchange(wallet && wallet.exchange); }
 function cashFor(points){
   const r = exchangeRate();
   const p = Math.max(0, Math.round(Number(points) || 0));
-  return Math.round((p / r.pointsPerUnit) * 100) / 100;
+  return Math.round((p / r.points) * r.amount * 100) / 100;
 }
 function fmtCash(n){ return (Number(n)||0).toLocaleString('th-TH', { maximumFractionDigits:2 }); }
+function rateLine(r){ return `${fmtPoints(r.points)} แต้ม = ${fmtCash(r.amount)} ${r.currency}`; }
 
 function openRateForm(){
   const r = exchangeRate();
-  draftRate = { pointsPerUnit:r.pointsPerUnit, currency:r.currency };
+  draftRate = { points:r.points, amount:r.amount, currency:r.currency };
   rateFormOpen = true; renderMarket();
 }
 function cancelRateForm(){ rateFormOpen = false; draftRate = null; renderMarket(); }
+function updateRatePreview(){
+  const el = document.getElementById('rate-preview');
+  if(!el) return;
+  const r = normalizeExchange(draftRate);
+  el.textContent = rateLine(r) + '  ·  1 แต้ม = ' + fmtCash(Math.round((r.amount / r.points) * 10000) / 10000) + ' ' + r.currency;
+}
+function setDraftRate(field, value){ draftRate[field] = value; updateRatePreview(); }
 function saveRateForm(){
-  const per = Math.max(1, Math.round(Number(draftRate.pointsPerUnit) || 0));
-  const cur = String(draftRate.currency || '').trim().slice(0, 12) || 'บาท';
-  wallet.exchange = { pointsPerUnit:per, currency:cur };
+  if(Math.round(Number(draftRate.points) || 0) < 1){ showToast('ฝั่งแต้มต้องอย่างน้อย 1'); return; }
+  if(!(Number(draftRate.amount) > 0)){ showToast('ฝั่งเงินต้องมากกว่า 0'); return; }
+  wallet.exchange = normalizeExchange(draftRate);
   saveWallet();
   rateFormOpen = false; draftRate = null;
   renderMarket();
@@ -3106,12 +3130,13 @@ function exchangeForCash(){
   const p = Math.max(0, Math.round(Number(draftCash.points) || 0));
   const r = exchangeRate();
   if(!p){ showToast('ใส่จำนวนแต้มที่จะแลกก่อน'); return; }
-  if(p < r.pointsPerUnit){ showToast('ต้องแลกอย่างน้อย ' + fmtPoints(r.pointsPerUnit) + ' แต้ม'); return; }
   const amount = cashFor(p);
+  if(!(amount > 0)){ showToast('แต้มน้อยเกินไป แลกแล้วได้ 0 ' + r.currency); return; }
   if(!spendPoints(p, `แลกเป็นเงิน ${fmtCash(amount)} ${r.currency}`, 'market')){
     showToast('แต้มไม่พอ'); return;
   }
-  wallet.cashOuts.unshift({ id:uid(), points:p, amount, currency:r.currency, pointsPerUnit:r.pointsPerUnit, at:new Date().toISOString() });
+  wallet.cashOuts.unshift({ id:uid(), points:p, amount, currency:r.currency,
+    ratePoints:r.points, rateAmount:r.amount, at:new Date().toISOString() });
   saveWallet();
   pushNotification('market', 'แลกเป็นเงิน ' + fmtCash(amount) + ' ' + r.currency, '-' + fmtPoints(p) + ' แต้ม', {type:'market'});
   draftCash.points = '';
@@ -3141,16 +3166,26 @@ function cashDeskHtml(){
     return `
       <div class="cash-card">
         <div class="cash-head"><p class="cash-title">ตั้งอัตราแลกเปลี่ยน</p></div>
-        <div class="field">
-          <label>กี่แต้มต่อ 1 หน่วยเงิน</label>
-          <input type="number" min="1" step="1" inputmode="numeric" id="rate-points-input"
-                 value="${escapeHtml(String(draftRate.pointsPerUnit))}" oninput="draftRate.pointsPerUnit=this.value">
+        <p class="cash-rate">กำหนดได้ทั้งสองฝั่ง เช่น 1 แต้ม = 500 กีบ หรือ 20 แต้ม = 1 บาท</p>
+        <div class="rate-row">
+          <span class="rate-cell">
+            <label>แต้ม</label>
+            <input type="number" min="1" step="1" inputmode="numeric" id="rate-points-input"
+                   value="${escapeHtml(String(draftRate.points))}" oninput="setDraftRate('points', this.value)">
+          </span>
+          <span class="rate-eq">=</span>
+          <span class="rate-cell">
+            <label>เงิน</label>
+            <input type="number" min="0.01" step="any" inputmode="decimal" id="rate-amount-input"
+                   value="${escapeHtml(String(draftRate.amount))}" oninput="setDraftRate('amount', this.value)">
+          </span>
+          <span class="rate-cell">
+            <label>สกุล</label>
+            <input type="text" id="rate-currency-input" placeholder="บาท"
+                   value="${escapeHtml(draftRate.currency)}" oninput="setDraftRate('currency', this.value)">
+          </span>
         </div>
-        <div class="field">
-          <label>ชื่อสกุลเงิน</label>
-          <input type="text" id="rate-currency-input" placeholder="เช่น บาท, กีบ"
-                 value="${escapeHtml(draftRate.currency)}" oninput="draftRate.currency=this.value">
-        </div>
+        <p class="cash-preview" id="rate-preview">—</p>
         <div class="row-actions">
           <button class="btn btn-primary btn-sm" onclick="saveRateForm()">บันทึกอัตรา</button>
           <button class="btn btn-ghost btn-sm" onclick="cancelRateForm()">ยกเลิก</button>
@@ -3163,7 +3198,7 @@ function cashDeskHtml(){
         <p class="cash-title">แลกแต้มเป็นเงิน</p>
         <button class="btn btn-ghost btn-sm" onclick="openRateForm()">ตั้งอัตรา</button>
       </div>
-      <p class="cash-rate">${fmtPoints(r.pointsPerUnit)} แต้ม = 1 ${escapeHtml(r.currency)}</p>
+      <p class="cash-rate">${fmtPoints(r.points)} แต้ม = ${fmtCash(r.amount)} ${escapeHtml(r.currency)}</p>
       <div class="cash-row">
         <input type="number" min="0" step="1" inputmode="numeric" id="cash-points-input" placeholder="จำนวนแต้ม"
                value="${escapeHtml(String(draftCash.points))}" oninput="setCashPoints(this.value)">
@@ -3178,7 +3213,7 @@ function cashDeskHtml(){
             <div class="ledger-row">
               <div>
                 <p class="ledger-reason">${fmtCash(c.amount)} ${escapeHtml(c.currency)}</p>
-                <p class="ledger-time">${fmtShortDate(c.at)} · ${fmtPoints(c.pointsPerUnit)} แต้ม/หน่วย</p>
+                <p class="ledger-time">${fmtShortDate(c.at)} · ${fmtPoints(c.ratePoints != null ? c.ratePoints : c.pointsPerUnit)} แต้ม = ${fmtCash(c.rateAmount != null ? c.rateAmount : 1)} ${escapeHtml(c.currency)}</p>
               </div>
               <span class="row-actions">
                 <span class="points-badge minus">-${fmtPoints(c.points)}</span>
@@ -3274,7 +3309,7 @@ function renderMarketForm(){
     </div>`;
 }
 
-function renderMarket(){ renderMarketImpl(); updateCashPreview(); pushHistoryState(); }
+function renderMarket(){ renderMarketImpl(); updateCashPreview(); updateRatePreview(); pushHistoryState(); }
 function renderMarketImpl(){
   const el = document.getElementById('view-market');
   if(!el || !wallet) return;
