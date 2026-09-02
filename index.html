@@ -199,14 +199,14 @@
   /* Message board for Claude — the first thing on the home tab */
   .chat-card{
     border:1.5px solid var(--paper-line); border-radius:12px; background:var(--paper-shade);
-    padding:12px; margin-bottom:18px;
+    padding:10px 11px; margin-bottom:16px;
   }
-  .chat-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
-  .chat-title{margin:0; font-size:15px; font-weight:700; color:var(--ink);}
-  .chat-sub{margin:0 0 10px; font-size:12px; color:var(--ink-soft);}
-  .chat-thread{display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; margin-bottom:10px;}
-  .chat-empty{margin:0 0 10px; font-size:13px; color:var(--ink-soft);}
-  .chat-msg{max-width:86%; padding:8px 11px; border-radius:12px; font-size:13.5px; line-height:1.55; word-break:break-word; white-space:pre-wrap;}
+  .chat-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px;}
+  .chat-title{margin:0; font-size:14px; font-weight:700; color:var(--ink);}
+  .chat-sub{margin:0 0 8px; font-size:11.5px; color:var(--ink-soft); line-height:1.4;}
+  .chat-thread{display:flex; flex-direction:column; gap:6px; max-height:230px; overflow-y:auto; margin-bottom:8px;}
+  .chat-empty{margin:0 0 8px; font-size:12px; color:var(--ink-soft);}
+  .chat-msg{max-width:88%; padding:7px 10px; border-radius:11px; font-size:13px; line-height:1.5; word-break:break-word; white-space:pre-wrap;}
   .chat-msg.me{align-self:flex-end; background:var(--cover); color:var(--cover-text); border-bottom-right-radius:4px;}
   .chat-msg.claude{align-self:flex-start; background:var(--paper); border:1.5px solid var(--paper-line); color:var(--ink); border-bottom-left-radius:4px;}
   .chat-meta{display:block; margin-top:4px; font-family:var(--font-mono); font-size:10.5px; opacity:.75;}
@@ -214,20 +214,38 @@
   .chat-msg.claude .chat-meta{color:var(--ink-soft);}
   .chat-msg.pending{opacity:.92;}
   .chat-compose textarea{
-    width:100%; min-height:74px; resize:vertical; font-family:var(--font-body); font-size:14.5px;
-    padding:9px 11px; border:1.5px solid var(--paper-line); border-radius:9px;
-    background:var(--paper); color:var(--ink);
+    width:100%; height:42px; min-height:42px; resize:vertical; font-family:var(--font-body); font-size:14px;
+    padding:10px 11px; border:1.5px solid var(--paper-line); border-radius:9px;
+    background:var(--paper); color:var(--ink); transition:height .15s ease;
   }
+  .chat-compose textarea:focus{height:86px;}
   .chat-compose textarea:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
-  .chat-when{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 0;}
-  .chat-when-label{font-size:12px; color:var(--ink-soft); margin-right:2px;}
+  /* Timing chips and Send share one row, so the card stays short. */
+  .chat-foot{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:7px;}
+  .chat-when{display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0;}
+  .chat-when-label{font-size:11px; color:var(--ink-soft); margin-right:1px;}
   .chat-when button{
     border:1.5px solid var(--paper-line); background:var(--paper); color:var(--ink-soft);
-    border-radius:20px; padding:4px 11px; font-family:var(--font-mono); font-size:12px; cursor:pointer;
+    border-radius:20px; padding:3px 9px; font-family:var(--font-mono); font-size:11.5px; cursor:pointer;
   }
   .chat-when button.active{border-color:var(--cover); background:var(--cover); color:var(--cover-text);}
-  .chat-foot{display:flex; align-items:center; justify-content:space-between; gap:8px;}
-  .chat-hint{font-size:11.5px; color:var(--ink-soft); margin:0;}
+
+  /* Turning points into money, on the market tab */
+  .cash-card{
+    border:1.5px solid var(--paper-line); border-radius:12px; background:var(--paper-shade);
+    padding:12px; margin-bottom:18px;
+  }
+  .cash-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px;}
+  .cash-title{margin:0; font-size:15px; font-weight:700; color:var(--ink);}
+  .cash-rate{margin:0 0 10px; font-family:var(--font-mono); font-size:12.5px; color:var(--ink-soft);}
+  .cash-row{display:flex; gap:8px; align-items:center; margin-bottom:8px;}
+  .cash-row input{
+    flex:1; min-width:0; font-family:var(--font-mono); font-size:15px; padding:9px 11px;
+    border:1.5px solid var(--paper-line); border-radius:9px; background:var(--paper); color:var(--ink);
+  }
+  .cash-row input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
+  .cash-preview{margin:0 0 10px; font-family:var(--font-mono); font-size:15px; font-weight:600; color:var(--highlighter);}
+  .cash-total{margin:14px 0 8px; font-size:12.5px; color:var(--ink-soft);}
 
   /* Calendar on the home tab — one square per day, a dot per kind of event */
   .cal-card{
@@ -259,6 +277,7 @@
   .cal-dot.lesson{background:var(--lang-en);}
   .cal-dot.quiz{background:var(--lang-zh);}
   .cal-dot.custom{background:var(--highlighter);}
+  .cal-dot.due{background:var(--ink-soft);}
   .cal-day.selected .cal-dot{box-shadow:0 0 0 1px rgba(246,241,228,.45);}
   .cal-legend{display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; font-size:11px; color:var(--ink-soft);}
   .cal-legend span{display:inline-flex; align-items:center; gap:4px;}
@@ -288,6 +307,8 @@
     padding:2px 9px; white-space:nowrap;
   }
   .points-badge.plus{ background:rgba(63,107,79,.16); color:var(--green-check); }
+  .kind-chip.repeat{ border-color:var(--highlighter); color:var(--highlighter); }
+  .field-hint{ font-size:11.5px; color:var(--ink-soft); margin:6px 0 0; }
   .points-badge.minus{ background:rgba(178,58,46,.14); color:var(--red-pen); }
   .price-tag{font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--highlighter);}
   .item-card-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px;}
@@ -1330,7 +1351,9 @@ async function loadAll(){
    ledger stays the complete history of how the balance got here.
    ========================================================= */
 function emptyWallet(){
-  return { balance:0, ledger:[], activities:[], marketItems:[], redemptions:[], lastModifiedAt:new Date().toISOString() };
+  return { balance:0, ledger:[], activities:[], marketItems:[], redemptions:[],
+           cashOuts:[], exchange:{ pointsPerUnit:10, currency:'บาท' },
+           lastModifiedAt:new Date().toISOString() };
 }
 function normalizeWallet(w){
   const base = emptyWallet();
@@ -1341,6 +1364,11 @@ function normalizeWallet(w){
     activities: Array.isArray(w.activities) ? w.activities : [],
     marketItems: Array.isArray(w.marketItems) ? w.marketItems : [],
     redemptions: Array.isArray(w.redemptions) ? w.redemptions : [],
+    cashOuts: Array.isArray(w.cashOuts) ? w.cashOuts : [],
+    exchange: {
+      pointsPerUnit: Math.max(1, Math.round(Number(w.exchange && w.exchange.pointsPerUnit) || base.exchange.pointsPerUnit)),
+      currency: String((w.exchange && w.exchange.currency) || base.exchange.currency).slice(0, 12)
+    },
     lastModifiedAt: w.lastModifiedAt || base.lastModifiedAt
   };
 }
@@ -1782,7 +1810,7 @@ function chatHtml(){
         <p class="chat-title">ฝากข้อความถึง Claude</p>
         ${messages.length ? `<button class="btn btn-ghost btn-sm" onclick="clearMessages()">ล้างกระดาน</button>` : ''}
       </div>
-      <p class="chat-sub">พิมพ์ทิ้งไว้ได้เลย Claude จะมาอ่านแล้วลงมือทำให้ในเว็บนี้ — เพิ่มโน้ต แจ้งเตือน อีเวนต์ หรือกิจกรรม</p>
+      <p class="chat-sub">พิมพ์ทิ้งไว้ Claude จะมาอ่านแล้วลงมือทำให้ในเว็บนี้</p>
       ${thread.length === 0
         ? `<p class="chat-empty">ยังไม่มีข้อความ — ลองพิมพ์สิ่งที่อยากให้ Claude ทำดู</p>`
         : `<div class="chat-thread" id="chat-thread">
@@ -1790,14 +1818,13 @@ function chatHtml(){
               <div class="chat-msg ${m.from==='user' ? 'me' : 'claude'} ${m.from==='user' && !m.answered ? 'pending' : ''}">${escapeHtml(m.text)}<span class="chat-meta">${fmtShortDate(m.createdAt)}${m.from==='user' ? ` · <span class="chat-status" data-msg="${m.id}">${messageStatusText(m)}</span>` : ' · Claude'}</span></div>`).join('')}
           </div>`}
       <div class="chat-compose">
-        <textarea id="chat-input" placeholder="เช่น พรุ่งนี้เตือนให้อ่านหนังสือ แล้วเพิ่มโน้ตสูตรผัดกะเพราไว้ให้หน่อย" oninput="draftMessage.text=this.value">${escapeHtml(draftMessage.text)}</textarea>
-        <div class="chat-when">
-          <span class="chat-when-label">ให้มาอ่านภายใน</span>
-          ${REPLY_WINDOWS.map(w=>`<button type="button" class="${draftMessage.within===w.secs?'active':''}" onclick="setReplyWindow(${w.secs})">${w.label}</button>`).join('')}
-        </div>
+        <textarea id="chat-input" placeholder="อยากให้ Claude ทำอะไร..." oninput="draftMessage.text=this.value">${escapeHtml(draftMessage.text)}</textarea>
         <div class="chat-foot">
-          <p class="chat-hint">ข้อความเก็บไว้ใน Google Drive ของคุณ</p>
-          <button class="btn btn-primary btn-sm" onclick="sendMessage()">ส่งข้อความ</button>
+          <span class="chat-when">
+            <span class="chat-when-label">อ่านใน</span>
+            ${REPLY_WINDOWS.map(w=>`<button type="button" class="${draftMessage.within===w.secs?'active':''}" onclick="setReplyWindow(${w.secs})">${w.label}</button>`).join('')}
+          </span>
+          <button class="btn btn-primary btn-sm" onclick="sendMessage()">ส่ง</button>
         </div>
       </div>
     </div>`;
@@ -1893,7 +1920,7 @@ function startOutboxWatch(){
 const TH_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
                    'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const TH_DOW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
-const EVENT_KIND_LABEL = { activity:'กิจกรรม', market:'แลกของรางวัล', lesson:'บทเรียน', quiz:'แบบฝึกหัด', custom:'อีเวนต์' };
+const EVENT_KIND_LABEL = { activity:'กิจกรรม', due:'ถึงรอบทำซ้ำ', market:'แลกของรางวัล', lesson:'บทเรียน', quiz:'แบบฝึกหัด', custom:'อีเวนต์' };
 
 let calCursor = null;      // {y, m} of the month on screen
 let calSelected = null;    // 'YYYY-MM-DD'
@@ -1916,7 +1943,11 @@ function eventsByDay(){
   const map = {};
   const put = (key, ev) => { if(!key) return; (map[key] = map[key] || []).push(ev); };
   if(wallet){
-    wallet.activities.forEach(a => put(a.date, { kind:'activity', title:a.title, meta:`+${fmtPoints(a.points)} แต้ม · ${kindLabel(a.kind)}` }));
+    wallet.activities.forEach(a => {
+      doneDatesOf(a).forEach(d => put(d, { kind:'activity', title:a.title, meta:`+${fmtPoints(a.points)} แต้ม · ${kindLabel(a.kind)}` }));
+      const due = nextDueDate(a);
+      if(due) put(due, { kind:'due', title:'ถึงรอบ: ' + a.title, meta:repeatLabel(a.repeat) });
+    });
     wallet.redemptions.forEach(r => put(isoToDayKey(r.redeemedAt), { kind:'market', title:'แลก ' + r.name, meta:`-${fmtPoints(r.price)} แต้ม` }));
   }
   notes.filter(n => n.completed).forEach(n => put(isoToDayKey(n.completedAt || n.updatedAt), { kind:'lesson', title:'เรียนจบ: ' + n.title, meta:'' }));
@@ -2053,6 +2084,7 @@ function calendarHtml(){
         <span><i class="cal-dot quiz"></i>แบบฝึกหัด</span>
         <span><i class="cal-dot market"></i>แลกของ</span>
         <span><i class="cal-dot custom"></i>อีเวนต์</span>
+        <span><i class="cal-dot due"></i>ถึงรอบ</span>
       </div>
       <div class="cal-day-panel">
         <div class="cal-day-head">
@@ -2082,11 +2114,11 @@ function renderHome(){
 
   // The wallet and the board lead the page and always show, even before
   // there are any lessons to summarise.
-  const head = chatHtml() + balanceCardHtml(
+  const head = balanceCardHtml(
     wallet.activities.length
       ? `จาก ${wallet.activities.length} กิจกรรม · แลกไปแล้ว ${wallet.redemptions.length} รายการ`
       : 'บันทึกกิจกรรมในแท็บโน้ต › กิจกรรม เพื่อเริ่มสะสมแต้ม'
-  ) + stickyBoardHtml() + calendarHtml();
+  ) + chatHtml() + stickyBoardHtml() + calendarHtml();
 
   if(notes.length===0 && quizzes.length===0){
     el.innerHTML = head + `
@@ -2777,11 +2809,56 @@ const ACTIVITY_KINDS = [
   { key:'other',    label:'อื่นๆ' },
 ];
 function kindLabel(k){ const f = ACTIVITY_KINDS.find(x=>x.key===k); return f ? f.label : 'อื่นๆ'; }
+
+const REPEATS = [
+  { key:'none',    label:'ครั้งเดียว' },
+  { key:'daily',   label:'ทุกวัน' },
+  { key:'weekly',  label:'ทุกสัปดาห์' },
+  { key:'monthly', label:'ทุกเดือน' },
+  { key:'yearly',  label:'ทุกปี' },
+];
+function repeatLabel(k){ const f = REPEATS.find(x=>x.key===k); return f ? f.label : 'ครั้งเดียว'; }
+function isRoutine(a){ return !!(a && a.repeat && a.repeat !== 'none'); }
+/* Every day this activity was actually done — old records only ever had one. */
+function doneDatesOf(a){ return Array.isArray(a && a.doneDates) && a.doneDates.length ? a.doneDates : [a && a.date].filter(Boolean); }
+function addInterval(dateStr, repeat){
+  const [y,m,d] = String(dateStr).split('-').map(Number);
+  if(!y || !m || !d) return dateStr;
+  const dt = new Date(y, m-1, d);
+  if(repeat === 'daily')   dt.setDate(dt.getDate() + 1);
+  if(repeat === 'weekly')  dt.setDate(dt.getDate() + 7);
+  if(repeat === 'monthly') dt.setMonth(dt.getMonth() + 1);
+  if(repeat === 'yearly')  dt.setFullYear(dt.getFullYear() + 1);
+  return dayKeyOf(dt);
+}
+/* When it comes round again, counting from the last time it was done. */
+function nextDueDate(a){
+  if(!isRoutine(a)) return null;
+  const done = doneDatesOf(a).slice().sort();
+  return addInterval(done[done.length-1] || a.date, a.repeat);
+}
+function isDueNow(a){
+  const due = nextDueDate(a);
+  return !!due && due <= todayInputValue();
+}
+/* Log another round of a routine: it pays again, once per occurrence. */
+function markRoutineDone(id){
+  const a = wallet.activities.find(x=>x.id===id);
+  if(!a || !isRoutine(a)) return;
+  const today = todayInputValue();
+  const done = doneDatesOf(a);
+  if(done.includes(today)){ showToast('วันนี้บันทึกไปแล้ว'); return; }
+  a.doneDates = [...done, today];
+  addPoints(a.points, a.title, 'notebook');
+  pushNotification('points', '+' + fmtPoints(a.points) + ' แต้ม', a.title + ' · ' + repeatLabel(a.repeat), {type:'activity'});
+  renderNotebook(); renderHome();
+  showToast('บันทึกแล้ว +' + fmtPoints(a.points) + ' แต้ม');
+}
 function todayInputValue(){
   const d = new Date(), p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
 }
-function newDraftActivity(){ return { title:'', kind:'read', points:10, date:todayInputValue() }; }
+function newDraftActivity(){ return { title:'', kind:'read', points:10, date:todayInputValue(), repeat:'none' }; }
 
 function openNewActivityForm(){
   draftActivity = newDraftActivity();
@@ -2791,7 +2868,7 @@ function openNewActivityForm(){
 }
 function openEditActivityForm(id){
   const a = wallet.activities.find(x=>x.id===id); if(!a) return;
-  draftActivity = { title:a.title, kind:a.kind||'other', points:a.points, date:a.date };
+  draftActivity = { title:a.title, kind:a.kind||'other', points:a.points, date:a.date, repeat:a.repeat||'none' };
   editingActivityId = id; notebookState = {mode:'form'};
   notebookFormSnapshot = JSON.stringify(draftActivity);
   renderNotebook();
@@ -2801,6 +2878,7 @@ function cancelActivityForm(){
   notebookState = {mode:'list'}; renderNotebook();
 }
 function setDraftActivityKind(k){ draftActivity.kind = k; renderNotebookForm(); }
+function setDraftActivityRepeat(k){ draftActivity.repeat = k; renderNotebookForm(); }
 
 function saveActivityForm(){
   const title = (draftActivity.title||'').trim();
@@ -2809,20 +2887,23 @@ function saveActivityForm(){
   if(!points){ showToast('ใส่คะแนนที่ได้ให้มากกว่า 0'); return; }
 
   if(editingActivityId){
-    // Editing re-balances by the difference so the ledger stays truthful.
+    // Editing re-balances by the difference, times however many rounds this
+    // one has already paid out, so the ledger stays truthful.
     const a = wallet.activities.find(x=>x.id===editingActivityId);
-    const diff = points - a.points;
+    const rounds = doneDatesOf(a).length || 1;
+    const diff = (points - a.points) * rounds;
     if(diff > 0) addPoints(diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
     else if(diff < 0){
       if(!spendPoints(-diff, 'แก้ไขกิจกรรม: ' + title, 'notebook')){
         showToast('ลดคะแนนไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return;
       }
     }
-    Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date });
+    Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date, repeat:draftActivity.repeat||'none' });
     saveWallet();
     showToast('แก้ไขกิจกรรมแล้ว');
   }else{
-    wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date, createdAt:new Date().toISOString() });
+    wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date,
+      repeat:draftActivity.repeat||'none', doneDates:[draftActivity.date], createdAt:new Date().toISOString() });
     addPoints(points, title, 'notebook');
     pushNotification('points', '+' + fmtPoints(points) + ' แต้ม', title + ' · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม', {type:'activity'});
     showToast('บันทึกแล้ว +' + fmtPoints(points) + ' แต้ม');
@@ -2841,13 +2922,14 @@ function confirmDeleteActivity(id, btnEl){
   const idx = wallet.activities.findIndex(a=>a.id===id);
   if(idx===-1) return;
   const a = wallet.activities[idx];
-  if(!spendPoints(a.points, 'ลบกิจกรรม: ' + a.title, 'notebook')){
+  const owed = a.points * (doneDatesOf(a).length || 1);   // every round it paid out
+  if(!spendPoints(owed, 'ลบกิจกรรม: ' + a.title, 'notebook')){
     showToast('ลบไม่ได้ เพราะคะแนนคงเหลือไม่พอจะหักคืน'); return;
   }
   wallet.activities.splice(idx,1);
   saveWallet();
   renderNotebook(); renderHome();
-  showToast('ลบกิจกรรมแล้ว -' + fmtPoints(a.points) + ' แต้ม');
+  showToast('ลบกิจกรรมแล้ว -' + fmtPoints(owed) + ' แต้ม');
 }
 
 function balanceCardHtml(sub){
@@ -2882,6 +2964,13 @@ function renderNotebookForm(){
         <label>วันที่</label>
         <input type="date" value="${escapeHtml(draftActivity.date)}" oninput="draftActivity.date=this.value">
       </div>
+      <div class="field">
+        <label>ทำซ้ำ</label>
+        <div class="toggle-group">
+          ${REPEATS.map(r=>`<button type="button" class="toggle-btn ${(draftActivity.repeat||'none')===r.key?'active':''}" onclick="setDraftActivityRepeat('${r.key}')">${r.label}</button>`).join('')}
+        </div>
+        ${(draftActivity.repeat||'none')!=='none' ? `<p class="field-hint">พอถึงรอบถัดไป จะมีปุ่มให้กดบันทึกและได้แต้มอีกครั้ง</p>` : ''}
+      </div>
     </div>
     <div class="row-actions">
       <button class="btn btn-primary" onclick="saveActivityForm()">บันทึกไว้</button>
@@ -2896,7 +2985,10 @@ function renderNotebookImpl(){
 
   if(notebookState.mode === 'form'){ renderNotebookForm(); return; }
 
-  const acts = [...wallet.activities].sort((a,b)=> String(b.date).localeCompare(String(a.date)) || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  const acts = [...wallet.activities].sort((a,b)=>
+    (isDueNow(b)?1:0) - (isDueNow(a)?1:0)
+    || String(b.date).localeCompare(String(a.date))
+    || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
 
   // The running balance lives on the home tab only — this page is the log.
   el.innerHTML = `
@@ -2911,24 +3003,157 @@ function renderNotebookImpl(){
         <button class="btn btn-primary" onclick="openNewActivityForm()">+ บันทึกกิจกรรมแรก</button>
       </div>` : `
       <div class="cards">
-        ${acts.map(a=>`
+        ${acts.map(a=>{
+          const routine = isRoutine(a);
+          const rounds = doneDatesOf(a).length;
+          const due = routine ? nextDueDate(a) : null;
+          return `
           <div class="card">
             <div class="card-top">
-              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span></p>
+              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span>${routine ? `<span class="kind-chip repeat">${repeatLabel(a.repeat)}</span>` : ''}</p>
               <span class="points-badge plus">+${fmtPoints(a.points)}</span>
             </div>
-            <p class="card-meta">${escapeHtml(a.date||'')}</p>
+            <p class="card-meta">${routine
+              ? `ทำมาแล้ว ${rounds} ครั้ง · ${isDueNow(a) ? 'ครบกำหนดแล้ว' : 'รอบถัดไป ' + escapeHtml(due||'')}`
+              : escapeHtml(a.date||'')}</p>
             <div class="row-actions" style="margin-top:8px;">
+              ${routine ? `<button class="btn ${isDueNow(a)?'btn-primary':'btn-ghost'} btn-sm" onclick="markRoutineDone('${a.id}')">ทำแล้ววันนี้ +${fmtPoints(a.points)}</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
               <button class="btn btn-danger btn-sm" onclick="confirmDeleteActivity('${a.id}', this)">ลบ</button>
             </div>
-          </div>`).join('')}
+          </div>`;}).join('')}
       </div>`}`;
 }
 
 /* =========================================================
    MARKET — spend points on real-life rewards
    ========================================================= */
+/* Turning points into real money. The rate is yours to set: how many
+   points make one unit of whatever currency you keep at home. */
+let draftCash = { points:'' };
+let rateFormOpen = false;
+let draftRate = null;
+
+function exchangeRate(){ return (wallet && wallet.exchange) ? wallet.exchange : { pointsPerUnit:10, currency:'บาท' }; }
+function cashFor(points){
+  const r = exchangeRate();
+  const p = Math.max(0, Math.round(Number(points) || 0));
+  return Math.round((p / r.pointsPerUnit) * 100) / 100;
+}
+function fmtCash(n){ return (Number(n)||0).toLocaleString('th-TH', { maximumFractionDigits:2 }); }
+
+function openRateForm(){
+  const r = exchangeRate();
+  draftRate = { pointsPerUnit:r.pointsPerUnit, currency:r.currency };
+  rateFormOpen = true; renderMarket();
+}
+function cancelRateForm(){ rateFormOpen = false; draftRate = null; renderMarket(); }
+function saveRateForm(){
+  const per = Math.max(1, Math.round(Number(draftRate.pointsPerUnit) || 0));
+  const cur = String(draftRate.currency || '').trim().slice(0, 12) || 'บาท';
+  wallet.exchange = { pointsPerUnit:per, currency:cur };
+  saveWallet();
+  rateFormOpen = false; draftRate = null;
+  renderMarket();
+  showToast('ตั้งอัตราแลกเปลี่ยนแล้ว');
+}
+
+function setCashPoints(v){ draftCash.points = v; updateCashPreview(); }
+function useAllPoints(){ draftCash.points = String(wallet.balance); renderMarket(); }
+function updateCashPreview(){
+  const el = document.getElementById('cash-preview');
+  if(!el) return;
+  const p = Math.max(0, Math.round(Number(draftCash.points) || 0));
+  const r = exchangeRate();
+  el.textContent = p ? `${fmtPoints(p)} แต้ม = ${fmtCash(cashFor(p))} ${r.currency}` : '—';
+}
+function exchangeForCash(){
+  const p = Math.max(0, Math.round(Number(draftCash.points) || 0));
+  const r = exchangeRate();
+  if(!p){ showToast('ใส่จำนวนแต้มที่จะแลกก่อน'); return; }
+  if(p < r.pointsPerUnit){ showToast('ต้องแลกอย่างน้อย ' + fmtPoints(r.pointsPerUnit) + ' แต้ม'); return; }
+  const amount = cashFor(p);
+  if(!spendPoints(p, `แลกเป็นเงิน ${fmtCash(amount)} ${r.currency}`, 'market')){
+    showToast('แต้มไม่พอ'); return;
+  }
+  wallet.cashOuts.unshift({ id:uid(), points:p, amount, currency:r.currency, pointsPerUnit:r.pointsPerUnit, at:new Date().toISOString() });
+  saveWallet();
+  pushNotification('market', 'แลกเป็นเงิน ' + fmtCash(amount) + ' ' + r.currency, '-' + fmtPoints(p) + ' แต้ม', {type:'market'});
+  draftCash.points = '';
+  renderMarket(); renderHome();
+  showToast('แลกเป็นเงิน ' + fmtCash(amount) + ' ' + r.currency + ' แล้ว');
+}
+function deleteCashOut(id, btnEl){
+  if(btnEl.dataset.confirm !== '1'){
+    btnEl.dataset.confirm = '1'; btnEl.textContent = 'ยืนยัน?';
+    setTimeout(()=>{ if(btnEl.isConnected){ btnEl.dataset.confirm=''; btnEl.textContent='ลบ'; } }, 3000);
+    return;
+  }
+  const i = wallet.cashOuts.findIndex(c=>c.id===id);
+  if(i === -1) return;
+  const c = wallet.cashOuts[i];
+  wallet.cashOuts.splice(i,1);
+  addPoints(c.points, 'ยกเลิกการแลกเป็นเงิน', 'market');
+  saveWallet();
+  renderMarket(); renderHome();
+  showToast('คืนแต้มแล้ว +' + fmtPoints(c.points));
+}
+
+function cashDeskHtml(){
+  const r = exchangeRate();
+  const totalOut = wallet.cashOuts.reduce((s,c)=> s + c.amount, 0);
+  if(rateFormOpen){
+    return `
+      <div class="cash-card">
+        <div class="cash-head"><p class="cash-title">ตั้งอัตราแลกเปลี่ยน</p></div>
+        <div class="field">
+          <label>กี่แต้มต่อ 1 หน่วยเงิน</label>
+          <input type="number" min="1" step="1" inputmode="numeric" id="rate-points-input"
+                 value="${escapeHtml(String(draftRate.pointsPerUnit))}" oninput="draftRate.pointsPerUnit=this.value">
+        </div>
+        <div class="field">
+          <label>ชื่อสกุลเงิน</label>
+          <input type="text" id="rate-currency-input" placeholder="เช่น บาท, กีบ"
+                 value="${escapeHtml(draftRate.currency)}" oninput="draftRate.currency=this.value">
+        </div>
+        <div class="row-actions">
+          <button class="btn btn-primary btn-sm" onclick="saveRateForm()">บันทึกอัตรา</button>
+          <button class="btn btn-ghost btn-sm" onclick="cancelRateForm()">ยกเลิก</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="cash-card">
+      <div class="cash-head">
+        <p class="cash-title">แลกแต้มเป็นเงิน</p>
+        <button class="btn btn-ghost btn-sm" onclick="openRateForm()">ตั้งอัตรา</button>
+      </div>
+      <p class="cash-rate">${fmtPoints(r.pointsPerUnit)} แต้ม = 1 ${escapeHtml(r.currency)}</p>
+      <div class="cash-row">
+        <input type="number" min="0" step="1" inputmode="numeric" id="cash-points-input" placeholder="จำนวนแต้ม"
+               value="${escapeHtml(String(draftCash.points))}" oninput="setCashPoints(this.value)">
+        <button class="btn btn-ghost btn-sm" onclick="useAllPoints()">ทั้งหมด</button>
+      </div>
+      <p class="cash-preview" id="cash-preview">—</p>
+      <button class="btn btn-primary btn-sm" onclick="exchangeForCash()">แลกเป็นเงิน</button>
+      ${wallet.cashOuts.length ? `
+        <p class="cash-total">แลกเป็นเงินไปแล้วรวม ${fmtCash(totalOut)} ${escapeHtml(wallet.cashOuts[0].currency)}</p>
+        <div class="cards">
+          ${wallet.cashOuts.slice(0,5).map(c=>`
+            <div class="ledger-row">
+              <div>
+                <p class="ledger-reason">${fmtCash(c.amount)} ${escapeHtml(c.currency)}</p>
+                <p class="ledger-time">${fmtShortDate(c.at)} · ${fmtPoints(c.pointsPerUnit)} แต้ม/หน่วย</p>
+              </div>
+              <span class="row-actions">
+                <span class="points-badge minus">-${fmtPoints(c.points)}</span>
+                <button class="btn btn-danger btn-sm" onclick="deleteCashOut('${c.id}', this)">ลบ</button>
+              </span>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>`;
+}
+
 function newDraftItem(){ return { name:'', desc:'', price:100 }; }
 
 function openNewItemForm(){
@@ -3014,7 +3239,7 @@ function renderMarketForm(){
     </div>`;
 }
 
-function renderMarket(){ renderMarketImpl(); pushHistoryState(); }
+function renderMarket(){ renderMarketImpl(); updateCashPreview(); pushHistoryState(); }
 function renderMarketImpl(){
   const el = document.getElementById('view-market');
   if(!el || !wallet) return;
@@ -3024,7 +3249,7 @@ function renderMarketImpl(){
   const items = [...wallet.marketItems].sort((a,b)=> a.price - b.price);
   const recent = [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt)).slice(0,5);
 
-  el.innerHTML = `
+  el.innerHTML = cashDeskHtml() + `
     <div class="list-head">
       <h2>ไอเทมในร้าน</h2>
       <button class="btn btn-primary btn-sm" onclick="openNewItemForm()">+ เพิ่มไอเทม</button>
