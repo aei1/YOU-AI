@@ -229,6 +229,16 @@
     border-radius:20px; padding:3px 9px; font-family:var(--font-mono); font-size:11.5px; cursor:pointer;
   }
   .chat-when button.active{border-color:var(--cover); background:var(--cover); color:var(--cover-text);}
+  /* How often Claude comes to read — small, it is a setting not a feature */
+  .chat-sched{
+    display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+    margin:0 0 8px; font-size:11.5px; color:var(--ink-soft);
+  }
+  .chat-sched button{
+    border:1.5px solid var(--paper-line); background:var(--paper); color:var(--ink-soft);
+    border-radius:20px; padding:2px 8px; font-family:var(--font-mono); font-size:11px; cursor:pointer;
+  }
+  .chat-sched button.active{border-color:var(--cover); background:var(--cover); color:var(--cover-text);}
 
   /* Turning points into money, on the market tab */
   .cash-card{
@@ -820,6 +830,7 @@ let notifications = [];                // sticky-note board on the home tab
 let events = [];                       // hand-written calendar entries
 let messages = [];                     // the message board you and Claude share
 let appliedActions = [];               // ids of Claude actions already carried out
+let settings = {};                     // your preferences, read by Claude too
 let notebookState = { mode:'list' };
 let marketState = { mode:'list' };
 let draftActivity = null, editingActivityId = null;
@@ -1218,6 +1229,7 @@ function currentDoc(){
   return {
     version: 1,
     notes, quizzes, journal, notifications, events, messages, appliedActions,
+    settings: normalizeSettings(settings),
     pointsWallet: wallet,
     lastModifiedAt: new Date().toISOString()
   };
@@ -1231,6 +1243,7 @@ function applyDoc(doc){
   events = Array.isArray(doc.events) ? doc.events : [];
   messages = Array.isArray(doc.messages) ? doc.messages : [];
   appliedActions = Array.isArray(doc.appliedActions) ? doc.appliedActions : [];
+  settings = normalizeSettings(doc.settings);
   wallet = normalizeWallet(doc.pointsWallet);
 }
 
@@ -1764,6 +1777,22 @@ function stickyBoardHtml(){
    `claude-outbox.json` published next to this page — the app
    polls it and carries each action out here, in the app, once.
    ========================================================= */
+/* Settings the page owns and Claude reads back out of the same file. */
+const CHECK_CHOICES = [5, 15, 30, 60];
+function normalizeSettings(s){
+  s = (s && typeof s === 'object') ? s : {};
+  const every = Math.round(Number(s.checkEveryMinutes) || 5);
+  return { checkEveryMinutes: CHECK_CHOICES.includes(every) ? every : 5 };
+}
+function checkEveryMinutes(){ return normalizeSettings(settings).checkEveryMinutes; }
+function setCheckEvery(minutes){
+  settings = normalizeSettings({ ...settings, checkEveryMinutes: minutes });
+  scheduleSave();
+  flushSave();                       // push it up so Claude picks the new pace up
+  renderHome();
+  showToast('ตั้งให้ Claude มาอ่านทุก ' + minutes + ' นาที');
+}
+
 const OUTBOX_URL = 'claude-outbox.json';
 const OUTBOX_POLL_MS = 30000;
 const MESSAGE_LIMIT = 100;
@@ -1828,6 +1857,9 @@ function chatHtml(){
         ${messages.length ? `<button class="btn btn-ghost btn-sm" onclick="clearMessages()">ล้างกระดาน</button>` : ''}
       </div>
       <p class="chat-sub">พิมพ์ทิ้งไว้ Claude จะมาอ่านแล้วลงมือทำให้ในเว็บนี้</p>
+      <p class="chat-sched">Claude มาอ่านทุก
+        ${CHECK_CHOICES.map(m=>`<button type="button" class="${checkEveryMinutes()===m?'active':''}" onclick="setCheckEvery(${m})">${m}</button>`).join('')}
+        นาที</p>
       ${thread.length === 0
         ? `<p class="chat-empty">ยังไม่มีข้อความ — ลองพิมพ์สิ่งที่อยากให้ Claude ทำดู</p>`
         : `<div class="chat-thread" id="chat-thread">
