@@ -196,32 +196,6 @@
   }
   .hub-tab.active{ background:var(--cover); color:var(--cover-text); }
 
-  /* Message board for Claude — the first thing on the home tab */
-  .chat-card{
-    border:1.5px solid var(--paper-line); border-radius:12px; background:var(--paper-shade);
-    padding:10px 11px; margin-bottom:16px;
-  }
-  .chat-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px;}
-  .chat-title{margin:0; font-size:14px; font-weight:700; color:var(--ink);}
-  .chat-sub{margin:0 0 8px; font-size:11.5px; color:var(--ink-soft); line-height:1.4;}
-  .chat-thread{display:flex; flex-direction:column; gap:6px; max-height:230px; overflow-y:auto; margin-bottom:8px;}
-  .chat-empty{margin:0 0 8px; font-size:12px; color:var(--ink-soft);}
-  .chat-msg{max-width:88%; padding:7px 10px; border-radius:11px; font-size:13px; line-height:1.5; word-break:break-word; white-space:pre-wrap;}
-  .chat-msg.me{align-self:flex-end; background:var(--cover); color:var(--cover-text); border-bottom-right-radius:4px;}
-  .chat-msg.claude{align-self:flex-start; background:var(--paper); border:1.5px solid var(--paper-line); color:var(--ink); border-bottom-left-radius:4px;}
-  .chat-meta{display:block; margin-top:4px; font-family:var(--font-mono); font-size:10.5px; opacity:.75;}
-  .chat-msg.me .chat-meta{color:rgba(246,241,228,.8);}
-  .chat-msg.claude .chat-meta{color:var(--ink-soft);}
-  .chat-msg.pending{opacity:.92;}
-  .chat-compose textarea{
-    width:100%; height:42px; min-height:42px; resize:vertical; font-family:var(--font-body); font-size:14px;
-    padding:10px 11px; border:1.5px solid var(--paper-line); border-radius:9px;
-    background:var(--paper); color:var(--ink); transition:height .15s ease;
-  }
-  .chat-compose textarea:focus{height:86px;}
-  .chat-compose textarea:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
-  .chat-foot{display:flex; align-items:center; justify-content:flex-end; margin-top:7px;}
-
   /* Turning points into money, on the market tab */
   .cash-card{
     border:1.5px solid var(--paper-line); border-radius:12px; background:var(--paper-shade);
@@ -810,7 +784,6 @@ let journalState = { mode:'list' };
 let wallet = null;                     // points wallet — see WALLET section
 let notifications = [];                // sticky-note board on the home tab
 let events = [];                       // hand-written calendar entries
-let messages = [];                     // the message board you and Claude share
 let appliedActions = [];               // ids of Claude actions already carried out
 let notebookState = { mode:'list' };
 let marketState = { mode:'list' };
@@ -1209,7 +1182,7 @@ async function writeDriveFile(id, doc){
 function currentDoc(){
   return {
     version: 1,
-    notes, quizzes, journal, notifications, events, messages, appliedActions,
+    notes, quizzes, journal, notifications, events, appliedActions,
     pointsWallet: wallet,
     lastModifiedAt: new Date().toISOString()
   };
@@ -1221,7 +1194,6 @@ function applyDoc(doc){
   journal = Array.isArray(doc.journal) ? doc.journal : [];
   notifications = Array.isArray(doc.notifications) ? doc.notifications : [];
   events = Array.isArray(doc.events) ? doc.events : [];
-  messages = Array.isArray(doc.messages) ? doc.messages : [];
   appliedActions = Array.isArray(doc.appliedActions) ? doc.appliedActions : [];
   wallet = normalizeWallet(doc.pointsWallet);
 }
@@ -1460,9 +1432,6 @@ function openNotification(id){
       if(l.date){ const [y,m] = String(l.date).split('-').map(Number); if(y && m) calCursor = {y, m:m-1}; calSelected = l.date; }
       switchTab('home'); renderHome();
       scrollToSelector('.cal-card'); return;
-    case 'chat':
-      switchTab('home'); renderHome();
-      scrollToSelector('.chat-card'); return;
   }
   notifSheetId = id;
   renderHome();
@@ -1713,7 +1682,6 @@ function stickyOpenLabel(n){
     case 'activity':return 'ดูกิจกรรม';
     case 'market':  return 'ไปมาร์เก็ต';
     case 'event':   return 'ดูในปฏิทิน';
-    case 'chat':    return 'ดูข้อความ';
     case 'hub':     return 'เปิดดู';
     default:        return 'อ่านเต็ม';
   }
@@ -1750,69 +1718,15 @@ function stickyBoardHtml(){
 }
 
 /* =========================================================
-   MESSAGE BOARD — leave a note here and Claude picks it up
-   You write into `messages`, which lives in your Drive file.
-   Claude reads that file, does the work, and answers through
-   `claude-outbox.json` published next to this page — the app
-   polls it and carries each action out here, in the app, once.
+   CLAUDE'S OUTBOX
+   Claude reads your Drive file, does what you asked for, and
+   writes the result into `claude-outbox.json` published next
+   to this page. The app polls it and carries each action out
+   here, in the app, exactly once.
    ========================================================= */
 const OUTBOX_URL = 'claude-outbox.json';
 const OUTBOX_POLL_MS = 30000;
-const MESSAGE_LIMIT = 100;
-const CHECK_EVERY_MINUTES = 5;         // how often Claude comes to read — fixed
-let draftMessage = { text:'' };
 let outboxTimer = null;
-
-function saveMessages(){ scheduleSave(); }
-
-function sendMessage(){
-  const text = (draftMessage.text || '').trim();
-  if(!text){ showToast('พิมพ์ข้อความก่อนส่ง'); return; }
-  messages.push({ id: uid(), from:'user', text, createdAt:new Date().toISOString(), answered:false });
-  if(messages.length > MESSAGE_LIMIT) messages = messages.slice(-MESSAGE_LIMIT);
-  draftMessage.text = '';
-  saveMessages();
-  flushSave();                       // push it up now so Claude can see it
-  renderHome();
-  showToast('ฝากข้อความไว้แล้ว');
-}
-function clearMessages(){
-  if(!messages.length) return;
-  if(!confirm('ล้างข้อความทั้งหมดในกระดานนี้?')) return;
-  messages = [];
-  saveMessages();
-  renderHome();
-}
-
-function messageStatusText(m){
-  if(m.from !== 'user') return '';
-  return m.answered ? 'Claude ตอบแล้ว' : 'รอ Claude อ่าน';
-}
-
-function chatHtml(){
-  const thread = messages.slice(-30);
-  return `
-    <div class="chat-card">
-      <div class="chat-head">
-        <p class="chat-title">ฝากข้อความถึง Claude</p>
-        ${messages.length ? `<button class="btn btn-ghost btn-sm" onclick="clearMessages()">ล้างกระดาน</button>` : ''}
-      </div>
-      <p class="chat-sub">พิมพ์ทิ้งไว้ Claude มาอ่านทุก ${CHECK_EVERY_MINUTES} นาที แล้วลงมือทำให้ในเว็บนี้</p>
-      ${thread.length === 0
-        ? `<p class="chat-empty">ยังไม่มีข้อความ — ลองพิมพ์สิ่งที่อยากให้ Claude ทำดู</p>`
-        : `<div class="chat-thread" id="chat-thread">
-            ${thread.map(m=>`
-              <div class="chat-msg ${m.from==='user' ? 'me' : 'claude'} ${m.from==='user' && !m.answered ? 'pending' : ''}">${escapeHtml(m.text)}<span class="chat-meta">${fmtShortDate(m.createdAt)}${m.from==='user' ? ' · ' + messageStatusText(m) : ' · Claude'}</span></div>`).join('')}
-          </div>`}
-      <div class="chat-compose">
-        <textarea id="chat-input" placeholder="อยากให้ Claude ทำอะไร..." oninput="draftMessage.text=this.value">${escapeHtml(draftMessage.text)}</textarea>
-        <div class="chat-foot">
-          <button class="btn btn-primary btn-sm" onclick="sendMessage()">ส่ง</button>
-        </div>
-      </div>
-    </div>`;
-}
-
 /* ---- Claude's outbox ----
    A small JSON file published beside this page. Each entry is one
    action; the id keeps it from ever being carried out twice. */
@@ -1836,24 +1750,13 @@ async function checkClaudeOutbox(){
   if(!changed) return;
 
   scheduleSave();
-  const focused = document.activeElement && document.activeElement.id === 'chat-input';
   renderAll();
-  if(focused){ const el = document.getElementById('chat-input'); if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
-  showToast('Claude ตอบกลับแล้ว');
+  showToast('Claude ทำให้แล้ว');
 }
 
 function applyClaudeAction(a){
   const at = a.at || new Date().toISOString();
   switch(a.type){
-    case 'reply': {
-      if(!a.text) return false;
-      messages.push({ id:a.id, from:'claude', text:a.text, createdAt:at, replyTo:a.replyTo || null });
-      if(a.replyTo){ const m = messages.find(x=>x.id===a.replyTo); if(m) m.answered = true; }
-      else messages.filter(m=>m.from==='user').forEach(m=> m.answered = true);
-      if(messages.length > MESSAGE_LIMIT) messages = messages.slice(-MESSAGE_LIMIT);
-      pushNotification('claude', 'Claude ตอบกลับแล้ว', a.text, {type:'chat'});
-      return true;
-    }
     case 'note': {
       const jid = uid();
       journal.push({ id:jid, title:a.title || 'โน้ตจาก Claude', content:a.content || '', tags:parseTags((a.tags||[]).join(' ')), updatedAt:at });
@@ -1875,11 +1778,14 @@ function applyClaudeAction(a){
       pushNotification('claude', a.title || 'ข้อความจาก Claude', a.body || '');   // no target: opens its own full text
       return true;
     case 'activity': {
+      // Same rule as setting one up by hand: this only sets the task up.
+      // The points are for doing it, so they wait for "ทำเสร็จแล้ว".
       const pts = Math.max(0, Math.round(Number(a.points) || 0));
-      wallet.activities.push({ id:uid(), title:a.title || 'กิจกรรมจาก Claude', kind:a.kind || 'other', points:pts, date:a.date || todayInputValue(), createdAt:at });
-      if(pts) addPoints(pts, a.title || 'กิจกรรมจาก Claude', 'notebook');
-      else saveWallet();
-      pushNotification('claude', 'Claude บันทึกกิจกรรมให้', `${a.title || ''}${pts ? ' · +' + fmtPoints(pts) + ' แต้ม' : ''}`, {type:'activity'});
+      wallet.activities.push({ id:uid(), title:a.title || 'ภารกิจจาก Claude', kind:a.kind || 'other', points:pts,
+        date:a.date || todayInputValue(), repeat:REPEATS.some(r=>r.key===a.repeat) ? a.repeat : 'none',
+        doneDates:[], createdAt:at });
+      saveWallet();
+      pushNotification('claude', 'Claude ตั้งภารกิจให้', `${a.title || ''}${pts ? ' · ทำเสร็จแล้วได้ ' + fmtPoints(pts) + ' แต้ม' : ''}`, {type:'activity'});
       return true;
     }
     default: return false;
@@ -2100,7 +2006,7 @@ function renderHome(){
     wallet.activities.length
       ? `จาก ${wallet.activities.length} กิจกรรม · แลกไปแล้ว ${wallet.redemptions.length} รายการ`
       : 'บันทึกกิจกรรมในแท็บโน้ต › กิจกรรม เพื่อเริ่มสะสมแต้ม'
-  ) + chatHtml() + stickyBoardHtml();
+  ) + stickyBoardHtml();
 
   if(notes.length===0 && quizzes.length===0){
     el.innerHTML = head + `
