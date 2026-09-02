@@ -308,6 +308,7 @@
   }
   .points-badge.plus{ background:rgba(63,107,79,.16); color:var(--green-check); }
   .kind-chip.repeat{ border-color:var(--highlighter); color:var(--highlighter); }
+  .card.is-done{ opacity:.62; }
   .field-hint{ font-size:11.5px; color:var(--ink-soft); margin:6px 0 0; }
   .points-badge.minus{ background:rgba(178,58,46,.14); color:var(--red-pen); }
   .price-tag{font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--highlighter);}
@@ -2118,7 +2119,7 @@ function renderHome(){
     wallet.activities.length
       ? `จาก ${wallet.activities.length} กิจกรรม · แลกไปแล้ว ${wallet.redemptions.length} รายการ`
       : 'บันทึกกิจกรรมในแท็บโน้ต › กิจกรรม เพื่อเริ่มสะสมแต้ม'
-  ) + chatHtml() + stickyBoardHtml() + calendarHtml();
+  ) + chatHtml() + stickyBoardHtml();
 
   if(notes.length===0 && quizzes.length===0){
     el.innerHTML = head + `
@@ -2126,7 +2127,7 @@ function renderHome(){
         <div class="doodle">📊</div>
         <p>ยังไม่มีบทเรียนให้สรุป เริ่มเพิ่มบทเรียนแรกก่อนนะ</p>
         <button class="btn btn-primary" onclick="gotoHub('read'); openNewNoteForm();">+ เพิ่มบทเรียนแรก</button>
-      </div>`;
+      </div>` + calendarHtml();
     return;
   }
   const stats = computeStats();
@@ -2199,7 +2200,8 @@ function renderHome(){
           </div>
           <span class="activity-type">${a.type==='note' ? 'บทเรียน' : 'แบบทดสอบ'}</span>
         </div>`).join('')}
-    </div>`}`;
+    </div>`}
+    ${calendarHtml()}`;
 }
 
 /* =========================================================
@@ -2819,8 +2821,15 @@ const REPEATS = [
 ];
 function repeatLabel(k){ const f = REPEATS.find(x=>x.key===k); return f ? f.label : 'ครั้งเดียว'; }
 function isRoutine(a){ return !!(a && a.repeat && a.repeat !== 'none'); }
-/* Every day this activity was actually done — old records only ever had one. */
-function doneDatesOf(a){ return Array.isArray(a && a.doneDates) && a.doneDates.length ? a.doneDates : [a && a.date].filter(Boolean); }
+/* Every day this task was actually done. An empty list means "not yet" —
+   only a record saved before tasks had a done list falls back to its date,
+   because back then creating one paid out on the spot. */
+function doneDatesOf(a){
+  if(!a) return [];
+  if(Array.isArray(a.doneDates)) return a.doneDates;
+  return a.date ? [a.date] : [];
+}
+function activityDone(a){ return doneDatesOf(a).length > 0; }
 function addInterval(dateStr, repeat){
   const [y,m,d] = String(dateStr).split('-').map(Number);
   if(!y || !m || !d) return dateStr;
@@ -2831,28 +2840,48 @@ function addInterval(dateStr, repeat){
   if(repeat === 'yearly')  dt.setFullYear(dt.getFullYear() + 1);
   return dayKeyOf(dt);
 }
-/* When it comes round again, counting from the last time it was done. */
+/* When this task is next owed. null means there is nothing left to do:
+   a one-off that has been done is finished for good. */
 function nextDueDate(a){
-  if(!isRoutine(a)) return null;
   const done = doneDatesOf(a).slice().sort();
-  return addInterval(done[done.length-1] || a.date, a.repeat);
+  if(!isRoutine(a)) return done.length ? null : (a.date || todayInputValue());
+  if(!done.length) return a.date || todayInputValue();   // a routine never done starts on its own date
+  return addInterval(done[done.length-1], a.repeat);
 }
 function isDueNow(a){
   const due = nextDueDate(a);
   return !!due && due <= todayInputValue();
 }
-/* Log another round of a routine: it pays again, once per occurrence. */
-function markRoutineDone(id){
+/* Marking it done is the only thing that pays — once per day for a
+   routine, once ever for a one-off. */
+function markActivityDone(id){
   const a = wallet.activities.find(x=>x.id===id);
-  if(!a || !isRoutine(a)) return;
+  if(!a) return;
   const today = todayInputValue();
   const done = doneDatesOf(a);
+  if(!isRoutine(a) && done.length){ showToast('ภารกิจนี้ทำเสร็จแล้ว'); return; }
   if(done.includes(today)){ showToast('วันนี้บันทึกไปแล้ว'); return; }
   a.doneDates = [...done, today];
   addPoints(a.points, a.title, 'notebook');
-  pushNotification('points', '+' + fmtPoints(a.points) + ' แต้ม', a.title + ' · ' + repeatLabel(a.repeat), {type:'activity'});
+  pushNotification('points', '+' + fmtPoints(a.points) + ' แต้ม',
+    a.title + (isRoutine(a) ? ' · ' + repeatLabel(a.repeat) : ''), {type:'activity'});
+  saveWallet();
   renderNotebook(); renderHome();
-  showToast('บันทึกแล้ว +' + fmtPoints(a.points) + ' แต้ม');
+  showToast('ทำเสร็จแล้ว +' + fmtPoints(a.points) + ' แต้ม');
+}
+/* Ticked it by mistake: take the last round back. */
+function undoActivityDone(id){
+  const a = wallet.activities.find(x=>x.id===id);
+  if(!a) return;
+  const done = doneDatesOf(a);
+  if(!done.length) return;
+  if(!spendPoints(a.points, 'ยกเลิก: ' + a.title, 'notebook')){
+    showToast('ยกเลิกไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return;
+  }
+  a.doneDates = done.slice(0, -1);
+  saveWallet();
+  renderNotebook(); renderHome();
+  showToast('ยกเลิกแล้ว -' + fmtPoints(a.points) + ' แต้ม');
 }
 function todayInputValue(){
   const d = new Date(), p = n => String(n).padStart(2,'0');
@@ -2882,7 +2911,7 @@ function setDraftActivityRepeat(k){ draftActivity.repeat = k; renderNotebookForm
 
 function saveActivityForm(){
   const title = (draftActivity.title||'').trim();
-  if(!title){ showToast('ใส่ชื่อกิจกรรมก่อนบันทึก'); return; }
+  if(!title){ showToast('ใส่ชื่อภารกิจก่อนบันทึก'); return; }
   const points = Math.max(0, Math.round(Number(draftActivity.points) || 0));
   if(!points){ showToast('ใส่คะแนนที่ได้ให้มากกว่า 0'); return; }
 
@@ -2902,11 +2931,11 @@ function saveActivityForm(){
     saveWallet();
     showToast('แก้ไขกิจกรรมแล้ว');
   }else{
+    // Setting a task up earns nothing — the points are for doing it.
     wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date,
-      repeat:draftActivity.repeat||'none', doneDates:[draftActivity.date], createdAt:new Date().toISOString() });
-    addPoints(points, title, 'notebook');
-    pushNotification('points', '+' + fmtPoints(points) + ' แต้ม', title + ' · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม', {type:'activity'});
-    showToast('บันทึกแล้ว +' + fmtPoints(points) + ' แต้ม');
+      repeat:draftActivity.repeat||'none', doneDates:[], createdAt:new Date().toISOString() });
+    saveWallet();
+    showToast('ตั้งภารกิจแล้ว · กด "ทำเสร็จแล้ว" เมื่อทำจริงเพื่อรับ ' + fmtPoints(points) + ' แต้ม');
   }
   notebookFormSnapshot = null; editingActivityId = null;
   notebookState = {mode:'list'};
@@ -2947,7 +2976,7 @@ function renderNotebookForm(){
     <button class="back-link" onclick="cancelActivityForm()">‹ กลับ</button>
     <div class="form-block">
       <div class="field">
-        <label>ชื่อกิจกรรม</label>
+        <label>ชื่อภารกิจ</label>
         <input type="text" id="activity-title-input" placeholder="เช่น อ่านหนังสือ 30 หน้า" value="${escapeHtml(draftActivity.title)}" oninput="draftActivity.title=this.value">
       </div>
       <div class="field">
@@ -2985,39 +3014,45 @@ function renderNotebookImpl(){
 
   if(notebookState.mode === 'form'){ renderNotebookForm(); return; }
 
+  // Still to do first, overdue at the very top; finished ones sink.
   const acts = [...wallet.activities].sort((a,b)=>
     (isDueNow(b)?1:0) - (isDueNow(a)?1:0)
+    || (nextDueDate(b)?1:0) - (nextDueDate(a)?1:0)
     || String(b.date).localeCompare(String(a.date))
     || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
 
   // The running balance lives on the home tab only — this page is the log.
   el.innerHTML = `
     <div class="list-head">
-      <h2>กิจกรรมที่ได้คะแนน</h2>
-      <button class="btn btn-primary btn-sm" onclick="openNewActivityForm()">+ บันทึกกิจกรรม</button>
+      <h2>ภารกิจ</h2>
+      <button class="btn btn-primary btn-sm" onclick="openNewActivityForm()">+ ตั้งภารกิจ</button>
     </div>
     ${acts.length===0 ? `
       <div class="empty">
         <div class="doodle">📓</div>
-        <p>ยังไม่มีกิจกรรม บันทึกสิ่งที่ทำวันนี้เพื่อสะสมแต้มไว้ใช้ในหน้ามาร์เก็ตได้เลย</p>
-        <button class="btn btn-primary" onclick="openNewActivityForm()">+ บันทึกกิจกรรมแรก</button>
+        <p>ยังไม่มีภารกิจ ตั้งสิ่งที่จะทำไว้ แล้วกดว่าทำเสร็จเพื่อรับแต้มไว้ใช้ในหน้ามาร์เก็ต</p>
+        <button class="btn btn-primary" onclick="openNewActivityForm()">+ ตั้งภารกิจแรก</button>
       </div>` : `
       <div class="cards">
         ${acts.map(a=>{
           const routine = isRoutine(a);
           const rounds = doneDatesOf(a).length;
-          const due = routine ? nextDueDate(a) : null;
+          const due = nextDueDate(a);
+          const done = activityDone(a);
+          const meta = routine
+            ? `ทำมาแล้ว ${rounds} ครั้ง · ${isDueNow(a) ? 'ครบกำหนดแล้ว' : 'รอบถัดไป ' + escapeHtml(due||'')}`
+            : done ? `ทำเสร็จแล้ว ${escapeHtml(doneDatesOf(a)[0]||'')}`
+                   : `กำหนด ${escapeHtml(a.date||'')}${isDueNow(a) ? ' · ถึงกำหนดแล้ว' : ''}`;
           return `
-          <div class="card">
+          <div class="card ${!routine && done ? 'is-done' : ''}">
             <div class="card-top">
-              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span>${routine ? `<span class="kind-chip repeat">${repeatLabel(a.repeat)}</span>` : ''}</p>
+              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span>${routine ? `<span class="kind-chip repeat">${repeatLabel(a.repeat)}</span>` : ''}${!routine && done ? '<span class="check-mark">✓</span>' : ''}</p>
               <span class="points-badge plus">+${fmtPoints(a.points)}</span>
             </div>
-            <p class="card-meta">${routine
-              ? `ทำมาแล้ว ${rounds} ครั้ง · ${isDueNow(a) ? 'ครบกำหนดแล้ว' : 'รอบถัดไป ' + escapeHtml(due||'')}`
-              : escapeHtml(a.date||'')}</p>
+            <p class="card-meta">${meta}</p>
             <div class="row-actions" style="margin-top:8px;">
-              ${routine ? `<button class="btn ${isDueNow(a)?'btn-primary':'btn-ghost'} btn-sm" onclick="markRoutineDone('${a.id}')">ทำแล้ววันนี้ +${fmtPoints(a.points)}</button>` : ''}
+              ${due ? `<button class="btn ${isDueNow(a)?'btn-primary':'btn-ghost'} btn-sm" onclick="markActivityDone('${a.id}')">ทำเสร็จแล้ว +${fmtPoints(a.points)}</button>` : ''}
+              ${rounds ? `<button class="btn btn-ghost btn-sm" onclick="undoActivityDone('${a.id}')">ยกเลิกครั้งล่าสุด</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
               <button class="btn btn-danger btn-sm" onclick="confirmDeleteActivity('${a.id}', this)">ลบ</button>
             </div>
