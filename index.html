@@ -2727,11 +2727,13 @@ const ACTIVITY_KINDS = [
 function kindLabel(k){ const f = ACTIVITY_KINDS.find(x=>x.key===k); return f ? f.label : 'อื่นๆ'; }
 
 const REPEATS = [
-  { key:'none',    label:'ครั้งเดียว' },
-  { key:'daily',   label:'ทุกวัน' },
-  { key:'weekly',  label:'ทุกสัปดาห์' },
-  { key:'monthly', label:'ทุกเดือน' },
-  { key:'yearly',  label:'ทุกปี' },
+  { key:'none',      label:'ครั้งเดียว',  days:0, months:0  },
+  { key:'daily',     label:'ทุกวัน',      days:1, months:0  },
+  { key:'weekly',    label:'ทุกสัปดาห์',  days:7, months:0  },
+  { key:'monthly',   label:'ทุกเดือน',    days:0, months:1  },
+  { key:'quarterly', label:'ทุก 3 เดือน', days:0, months:3  },
+  { key:'biannual',  label:'ทุก 6 เดือน', days:0, months:6  },
+  { key:'yearly',    label:'ทุกปี',       days:0, months:12 },
 ];
 function repeatLabel(k){ const f = REPEATS.find(x=>x.key===k); return f ? f.label : 'ครั้งเดียว'; }
 function isRoutine(a){ return !!(a && a.repeat && a.repeat !== 'none'); }
@@ -2745,13 +2747,13 @@ function doneDatesOf(a){
 }
 function activityDone(a){ return doneDatesOf(a).length > 0; }
 function addInterval(dateStr, repeat){
+  const f = REPEATS.find(x => x.key === repeat);
+  if(!f || (!f.days && !f.months)) return dateStr;
   const [y,m,d] = String(dateStr).split('-').map(Number);
   if(!y || !m || !d) return dateStr;
   const dt = new Date(y, m-1, d);
-  if(repeat === 'daily')   dt.setDate(dt.getDate() + 1);
-  if(repeat === 'weekly')  dt.setDate(dt.getDate() + 7);
-  if(repeat === 'monthly') dt.setMonth(dt.getMonth() + 1);
-  if(repeat === 'yearly')  dt.setFullYear(dt.getFullYear() + 1);
+  if(f.days)   dt.setDate(dt.getDate() + f.days);
+  if(f.months) dt.setMonth(dt.getMonth() + f.months);
   return dayKeyOf(dt);
 }
 /* When this task is next owed. null means there is nothing left to do:
@@ -2909,10 +2911,10 @@ function renderNotebookForm(){
       </div>
       <div class="field">
         <label>ทำซ้ำ</label>
-        <div class="toggle-group">
-          ${REPEATS.map(r=>`<button type="button" class="toggle-btn ${(draftActivity.repeat||'none')===r.key?'active':''}" onclick="setDraftActivityRepeat('${r.key}')">${r.label}</button>`).join('')}
-        </div>
-        ${(draftActivity.repeat||'none')!=='none' ? `<p class="field-hint">พอถึงรอบถัดไป จะมีปุ่มให้กดบันทึกและได้แต้มอีกครั้ง</p>` : ''}
+        <select id="activity-repeat-select" onchange="setDraftActivityRepeat(this.value)">
+          ${REPEATS.map(r=>`<option value="${r.key}" ${(draftActivity.repeat||'none')===r.key?'selected':''}>${r.label}</option>`).join('')}
+        </select>
+        ${(draftActivity.repeat||'none')!=='none' ? `<p class="field-hint">ทำเสร็จแล้วรอบถัดไปคือ ${escapeHtml(addInterval(draftActivity.date || todayInputValue(), draftActivity.repeat))} · พอถึงรอบจะมีปุ่มให้กดบันทึกและได้แต้มอีกครั้ง</p>` : ''}
       </div>
     </div>
     <div class="row-actions">
