@@ -211,6 +211,13 @@
   }
   .cash-row input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
   .cash-preview{margin:0 0 10px; font-family:var(--font-mono); font-size:15px; font-weight:600; color:var(--highlighter);}
+  .sched-extra{margin-top:8px;}
+  .sched-extra input{
+    font-family:var(--font-body); font-size:14.5px; color:var(--ink);
+    background:var(--paper); border:1.5px solid var(--paper-line); border-radius:8px;
+    padding:9px 11px; width:100%; box-sizing:border-box;
+  }
+  .sched-extra input:focus-visible{outline:2px solid var(--highlighter); border-color:var(--highlighter);}
   .rate-row{display:flex; align-items:flex-end; gap:8px; margin-bottom:10px;}
   .rate-cell{display:flex; flex-direction:column; gap:3px; flex:1; min-width:0;}
   .rate-cell label{font-size:11px; color:var(--ink-soft);}
@@ -288,7 +295,7 @@
   .card.is-done{ opacity:.62; }
   .field-hint{ font-size:11.5px; color:var(--ink-soft); margin:6px 0 0; }
   .points-badge.minus{ background:rgba(178,58,46,.14); color:var(--red-pen); }
-  .price-tag{font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--highlighter);}
+  .price-tag{font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--highlighter); white-space:nowrap;}
   .item-card-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px;}
   .kind-chip{
     display:inline-block; font-size:11.5px; border-radius:20px; padding:2px 9px; margin-left:6px;
@@ -636,7 +643,7 @@
     .field input[type=text], .field textarea, .field select,
     .vocab-block input[type=text],
     .opt-row input[type=text],
-    .cash-row input, .rate-cell input{
+    .cash-row input, .rate-cell input, .sched-extra input{
       font-size:16px;
     }
   }
@@ -801,7 +808,7 @@ let events = [];                       // hand-written calendar entries
 let appliedActions = [];               // ids of Claude actions already carried out
 let notebookState = { mode:'list' };
 let marketState = { mode:'list' };
-let marketSection = 'shop';           // 'shop' = what is on the shelf today, 'stock' = the store room
+let marketSection = 'shop';           // 'shop' = the shop (and its manage screen), 'bag' = what you already bought
 let draftActivity = null, editingActivityId = null;
 let draftItem = null, editingItemId = null;
 let notebookFormSnapshot = null, marketFormSnapshot = null;
@@ -1443,6 +1450,8 @@ function openNotification(id){
       gotoHub('activities'); return;
     case 'market':
       marketState = {mode:'list'}; marketSection = 'shop'; switchTab('market'); renderMarket(); return;
+    case 'bag':
+      marketState = {mode:'list'}; marketSection = 'bag'; switchTab('market'); renderMarket(); return;
     case 'event':
       if(l.date){ const [y,m] = String(l.date).split('-').map(Number); if(y && m) calCursor = {y, m:m-1}; calSelected = l.date; }
       switchTab('home'); renderHome();
@@ -1697,7 +1706,8 @@ function stickyOpenLabel(n){
     case 'journal': return 'เปิดโน้ต';
     case 'quiz':    return 'เปิดแบบฝึกหัด';
     case 'activity':return 'ดูกิจกรรม';
-    case 'market':  return 'ไปมาร์เก็ต';
+    case 'market':  return 'ไปร้านค้า';
+    case 'bag':     return 'ดูในคลัง';
     case 'event':   return 'ดูในปฏิทิน';
     case 'hub':     return 'เปิดดู';
     default:        return 'อ่านเต็ม';
@@ -2812,21 +2822,6 @@ function cancelActivityForm(){
 }
 function setDraftActivityKind(k){ draftActivity.kind = k; renderNotebookForm(); }
 function setDraftActivityRepeat(k){ draftActivity.repeat = k; renderNotebookForm(); }
-function setDraftItemCycle(k){ draftItem.cycle = k; renderMarketForm(); }
-function setDraftItemLimit(k){ draftItem.limitPer = k; renderMarketForm(); }
-/* Typing in the count box only rewrites the one line that depends on it,
-   so the caret stays where the fingers left it. */
-const RESET_WORD = { day:'วันใหม่', month:'เดือนใหม่', year:'ปีใหม่' };
-function limitHintText(d){
-  const per = limitOf(d), n = fmtPoints(limitCountOf(d));
-  if(per === 'total') return `มีทั้งหมด ${n} ครั้งเท่านั้น แลกครบแล้วหายไปถาวร`;
-  return `แลกได้ ${n} ครั้ง${limitLabel(per)} พอขึ้น${RESET_WORD[per] || 'รอบใหม่'} โควตาจะรีเซ็ตเอง`;
-}
-function setDraftItemCount(v){
-  draftItem.limitCount = v;
-  const el = document.getElementById('item-limit-hint');
-  if(el) el.textContent = limitHintText(draftItem);
-}
 
 function saveActivityForm(){
   const title = (draftActivity.title||'').trim();
@@ -3127,33 +3122,73 @@ function cashDeskHtml(){
     </div>`;
 }
 
-/* An item can come round on a cycle instead of always being on the shelf.
-   The clock starts from the last time you took it, so "ทุกปี" means you
-   can claim it once a year — no extra bookkeeping, the redemptions we
-   already record are the record. */
-const MARKET_CYCLES = [
-  { key:'always',   label:'ตลอดเวลา', months:0  },
-  { key:'monthly',  label:'ทุกเดือน',  months:1  },
-  { key:'biannual', label:'ทุก 6 เดือน', months:6 },
-  { key:'yearly',   label:'ทุกปี',     months:12 },
-  { key:'random',   label:'สุ่ม',      months:0  },
-];
-const RANDOM_APPEAR_PERCENT = 25;      // roughly one day in four
-function cycleOf(it){ const k = it && it.cycle; return MARKET_CYCLES.some(c=>c.key===k) ? k : 'always'; }
-function cycleLabel(k){ const f = MARKET_CYCLES.find(c=>c.key===k); return f ? f.label : 'ตลอดเวลา'; }
-function cycleMonths(k){ const f = MARKET_CYCLES.find(c=>c.key===k); return f ? f.months : 0; }
+/* An item is described by two independent things, and both are picked from
+   a single dropdown so the form stays short:
 
-function addMonthsToKey(dateStr, months){
-  const [y,m,d] = String(dateStr).split('-').map(Number);
-  if(!y || !m || !d) return dateStr;
-  const dt = new Date(y, m-1, d);
-  dt.setMonth(dt.getMonth() + months);
-  return dayKeyOf(dt);
+     schedule — WHEN it is on the shelf at all. A shop event can be one
+                specific day, that same day every year, that date every
+                month, a whole month, that month every year, or a random
+                day it decides for itself.
+     limit    — HOW MANY you may take while it is there, per day, month,
+                half-year, year, or ever.
+
+   Neither keeps a counter of its own: both read the redemptions already
+   recorded, so a per-year limit refills by itself when the year turns and
+   there is nothing to reset by hand. */
+
+const SCHEDULES = [
+  { key:'always',      label:'ขายทุกวัน',                     short:'ทุกวัน',        needs:null    },
+  { key:'onceDate',    label:'เฉพาะวันที่กำหนด (ครั้งเดียว)',  short:'วันเดียว',      needs:'date'  },
+  { key:'yearlyDay',   label:'วันเดิมนี้ ของทุกปี',            short:'ทุกปี',         needs:'date'  },
+  { key:'monthlyDay',  label:'วันที่เดิมนี้ ของทุกเดือน',       short:'ทุกเดือน',      needs:'dom'   },
+  { key:'onceMonth',   label:'เฉพาะเดือนที่กำหนด (ครั้งเดียว)', short:'เดือนเดียว',    needs:'month' },
+  { key:'yearlyMonth', label:'เดือนเดิมนี้ ของทุกปี',          short:'เดือนนี้ทุกปี', needs:'month' },
+  { key:'random',      label:'สุ่มโผล่เอง',                    short:'สุ่ม',          needs:null    },
+];
+const RANDOM_APPEAR_PERCENT = 10;      // roughly one day in ten
+// Month names come from the calendar's TH_MONTHS, declared further up.
+
+function scheduleDef(k){ return SCHEDULES.find(x=>x.key===k) || SCHEDULES[0]; }
+function scheduleShort(k){ return scheduleDef(k).short; }
+
+/* Items written before schedules existed carried a `cycle` instead. The two
+   old cooldown cycles are exactly a limit of one per period, so they are
+   read as that; only 'random' was ever about when a thing appears. */
+const LEGACY_CYCLE_LIMIT = { monthly:'month', biannual:'half', yearly:'year', random:'day' };
+function scheduleOf(it){
+  const raw = it && it.schedule;
+  if(raw && SCHEDULES.some(x=>x.key===raw.mode)){
+    return { mode:raw.mode, date:raw.date || '', dom:raw.dom || 1, month:raw.month || '' };
+  }
+  const mode = (it && it.cycle === 'random') ? 'random' : 'always';
+  return { mode, date:'', dom:1, month:'' };
 }
-function lastRedeemedDay(itemId){
-  const days = wallet.redemptions.filter(r=>r.itemId===itemId).map(r=>isoToDayKey(r.redeemedAt)).filter(Boolean).sort();
-  return days.length ? days[days.length-1] : '';
+
+const LIMIT_PERIODS = [
+  { key:'none',  label:'ไม่จำกัด',        word:''          },
+  { key:'day',   label:'จำกัดต่อวัน',      word:'วันนี้'    },
+  { key:'month', label:'จำกัดต่อเดือน',    word:'เดือนนี้'  },
+  { key:'half',  label:'จำกัดต่อครึ่งปี',  word:'ครึ่งปีนี้' },
+  { key:'year',  label:'จำกัดต่อปี',       word:'ปีนี้'     },
+  { key:'total', label:'จำกัดตลอดกาล',    word:''          },
+];
+function limitOf(it){
+  const k = it && it.limitPer;
+  if(LIMIT_PERIODS.some(l=>l.key===k)) return k;
+  return (it && LEGACY_CYCLE_LIMIT[it.cycle]) || 'none';
 }
+function limitCountOf(it){
+  if(it && it.limitCount != null) return Math.max(1, Math.round(Number(it.limitCount) || 1));
+  return 1;
+}
+function limitWord(k){ const f = LIMIT_PERIODS.find(l=>l.key===k); return f ? f.word : ''; }
+
+/* ---- day-key arithmetic, all on 'YYYY-MM-DD' strings ---- */
+function keyToDate(k){ const [y,m,d] = String(k).split('-').map(Number); return new Date(y, (m||1)-1, d||1); }
+function shiftKey(k, days){ const d = keyToDate(k); d.setDate(d.getDate() + days); return dayKeyOf(d); }
+function daysInMonth(y, m){ return new Date(y, m, 0).getDate(); }        // m is 1-based
+function monthName(mm){ return TH_MONTHS[(Number(mm) || 1) - 1] || ''; }
+
 /* Same answer on every device and all day long, without storing anything:
    the roll is a hash of the item and today's date. */
 function hashInt(str){
@@ -3163,32 +3198,83 @@ function hashInt(str){
 }
 function appearsToday(itemId, dayKey){ return (hashInt(itemId + '@' + dayKey) % 100) < RANDOM_APPEAR_PERCENT; }
 
-/* How many times an item may be taken, on top of when it shows up. The
-   cycle says when a thing appears; the quota says how often you get it
-   while it is there. Both are counted straight off the redemptions we
-   already keep, so nothing extra is stored and nothing can drift. */
-const ITEM_LIMITS = [
-  { key:'none',  label:'ไม่จำกัด', word:''          },
-  { key:'day',   label:'ต่อวัน',   word:'วันนี้'    },
-  { key:'month', label:'ต่อเดือน', word:'เดือนนี้'  },
-  { key:'year',  label:'ต่อปี',    word:'ปีนี้'     },
-  { key:'total', label:'ทั้งหมด',  word:'ทั้งหมด'   },
-];
-function limitOf(it){ const k = it && it.limitPer; return ITEM_LIMITS.some(l=>l.key===k) ? k : 'none'; }
-function limitCountOf(it){ return Math.max(1, Math.round(Number(it && it.limitCount) || 1)); }
-function limitLabel(k){ const f = ITEM_LIMITS.find(l=>l.key===k); return f ? f.label : 'ไม่จำกัด'; }
-function limitWord(k){ const f = ITEM_LIMITS.find(l=>l.key===k); return f ? f.word : ''; }
+/* Is the item on the shelf on this particular day? */
+function onShelfOn(it, dayKey){
+  const s = scheduleOf(it);
+  switch(s.mode){
+    case 'always':      return true;
+    case 'random':      return appearsToday(it.id, dayKey);
+    case 'onceDate':    return !!s.date && s.date === dayKey;
+    case 'yearlyDay':   return !!s.date && s.date.slice(5) === dayKey.slice(5);
+    case 'onceMonth':   return !!s.month && s.month === dayKey.slice(0, 7);
+    case 'yearlyMonth': return !!s.month && s.month.slice(5, 7) === dayKey.slice(5, 7);
+    case 'monthlyDay': {
+      const [y, m, d] = dayKey.split('-').map(Number);
+      // A 31st still lands in a 30-day month, on its last day.
+      return d === Math.min(s.dom, daysInMonth(y, m));
+    }
+    default: return true;
+  }
+}
+/* The next day it will be on the shelf, or '' when there is no telling. */
+function nextShelfDay(it, fromKey){
+  const s = scheduleOf(it);
+  if(s.mode === 'always') return fromKey;
+  if(s.mode === 'random') return '';                    // it decides each morning
+  if(s.mode === 'onceDate') return s.date >= fromKey ? s.date : '';
+  if(s.mode === 'onceMonth'){
+    if(!s.month) return '';
+    const first = s.month + '-01';
+    return s.month >= fromKey.slice(0, 7) ? (first >= fromKey ? first : fromKey) : '';
+  }
+  for(let i = 0, k = fromKey; i < 400; i++, k = shiftKey(k, 1)){
+    if(onShelfOn(it, k)) return k;
+  }
+  return '';
+}
+function scheduleSummary(it){
+  const s = scheduleOf(it);
+  switch(s.mode){
+    case 'always':      return 'ขายทุกวัน';
+    case 'random':      return `สุ่มโผล่เอง ~${RANDOM_APPEAR_PERCENT}% ของวัน`;
+    case 'onceDate':    return `ขายเฉพาะ ${s.date} วันเดียว`;
+    case 'yearlyDay':   return `ขายวันที่ ${Number(s.date.slice(8))} ${monthName(s.date.slice(5,7))} ของทุกปี`;
+    case 'monthlyDay':  return `ขายวันที่ ${s.dom} ของทุกเดือน`;
+    case 'onceMonth':   return `ขายทั้งเดือน ${monthName(s.month.slice(5,7))} ${s.month.slice(0,4)} เดือนเดียว`;
+    case 'yearlyMonth': return `ขายทั้งเดือน ${monthName(s.month.slice(5,7))} ของทุกปี`;
+    default: return '';
+  }
+}
 
-/* 'day' compares 2026-09-02, 'month' 2026-09, 'year' 2026 — one prefix
-   of the same day key, so there is no calendar arithmetic to get wrong. */
-function periodPrefixLen(per){ return per==='day' ? 10 : per==='month' ? 7 : per==='year' ? 4 : 0; }
+/* ---- limits, counted straight off the redemptions ---- */
+function periodKeyOf(per, dayKey){
+  switch(per){
+    case 'day':   return dayKey;
+    case 'month': return dayKey.slice(0, 7);
+    case 'half':  return dayKey.slice(0, 4) + '-H' + (Number(dayKey.slice(5, 7)) <= 6 ? 1 : 2);
+    case 'year':  return dayKey.slice(0, 4);
+    case 'total': return 'ALL';
+    default: return '';
+  }
+}
 function usedInPeriod(itemId, per){
   const rows = wallet.redemptions.filter(r => r.itemId === itemId);
   if(per === 'total') return rows.length;
-  const n = periodPrefixLen(per);
-  if(!n) return 0;
-  const cur = todayInputValue().slice(0, n);
-  return rows.filter(r => (isoToDayKey(r.redeemedAt) || '').slice(0, n) === cur).length;
+  const cur = periodKeyOf(per, todayInputValue());
+  if(!cur) return 0;
+  return rows.filter(r => periodKeyOf(per, isoToDayKey(r.redeemedAt) || '') === cur).length;
+}
+/* When the allowance fills back up — the answer to "do I have to set this
+   up again next year?", which is no. */
+function limitResetsOn(per, dayKey){
+  const [y, m] = dayKey.split('-').map(Number);
+  switch(per){
+    case 'day':   return shiftKey(dayKey, 1);
+    case 'month': return m === 12 ? `${y+1}-01-01` : `${y}-${String(m+1).padStart(2,'0')}-01`;
+    case 'half':  return m <= 6 ? `${y}-07-01` : `${y+1}-01-01`;
+    case 'year':  return `${y+1}-01-01`;
+    default: return '';
+  }
 }
 function quotaState(it){
   const per = limitOf(it);
@@ -3197,73 +3283,117 @@ function quotaState(it){
   const used = usedInPeriod(it.id, per);
   return { limited:true, per, cap, used, left: Math.max(0, cap - used) };
 }
-/* Short line for the chip on the card: what is left, and out of what. */
 function quotaChipText(q){
   if(!q.limited) return '';
-  if(q.per === 'total') return q.left > 0 ? `เหลือ ${fmtPoints(q.left)} ครั้ง` : 'หมดแล้ว';
+  if(q.per === 'total') return q.left > 0 ? `เหลือ ${fmtPoints(q.left)} ครั้ง` : 'หมดถาวร';
   return q.left > 0 ? `เหลือ ${fmtPoints(q.left)}/${fmtPoints(q.cap)} ${limitWord(q.per)}`
-                    : `หมดโควตา${limitWord(q.per)}`;
+                    : `ครบโควตา${limitWord(q.per)}`;
 }
 
+/* Both gates in one answer: ready, and if not, why and when it changes. */
 function itemAvailability(it){
-  const cyc = cycleOf(it);
   const today = todayInputValue();
+  const sched = scheduleOf(it);
   const quota = quotaState(it);
-  // The quota is the harder wall: run it out and the cycle no longer matters.
+  const open = onShelfOn(it, today);
+
   if(quota.limited && quota.left <= 0){
-    return { ready:false, cycle:cyc, quota,
-             reason: quota.per === 'total' ? 'แลกครบแล้ว' : 'หมดโควตา' + limitWord(quota.per) };
+    if(quota.per === 'total') return { ready:false, quota, sched, reason:'แลกครบแล้ว ไม่มีอีก' };
+    const back = limitResetsOn(quota.per, today);
+    // Once the allowance refills it still has to be a selling day.
+    const next = nextShelfDay(it, back);
+    return { ready:false, quota, sched, reason:`ครบโควตา${limitWord(quota.per)}`,
+             next: next || back, nextIsReset:true };
   }
-  if(cyc === 'always') return { ready:true, cycle:cyc, quota };
-  const last = lastRedeemedDay(it.id);
-  if(cyc === 'random'){
-    if(last === today) return { ready:false, cycle:cyc, quota, reason:'แลกไปแล้ววันนี้' };
-    return appearsToday(it.id, today)
-      ? { ready:true, cycle:cyc, quota, hot:true }
-      : { ready:false, cycle:cyc, quota, reason:'วันนี้ยังไม่โผล่' };
-  }
-  if(!last) return { ready:true, cycle:cyc, quota };
-  const next = addMonthsToKey(last, cycleMonths(cyc));
-  return next <= today ? { ready:true, cycle:cyc, quota } : { ready:false, cycle:cyc, quota, next };
+  if(open) return { ready:true, quota, sched, hot: sched.mode === 'random' };
+
+  const next = nextShelfDay(it, shiftKey(today, 1));
+  if(sched.mode === 'random') return { ready:false, quota, sched, reason:'วันนี้ยังไม่โผล่' };
+  if(!next) return { ready:false, quota, sched, reason:'เลยวันขายไปแล้ว' };
+  return { ready:false, quota, sched, reason:'ยังไม่ถึงวันขาย', next };
 }
 
-function newDraftItem(){ return { name:'', desc:'', price:100, cycle:'always', limitPer:'none', limitCount:1 }; }
+/* =========================================================
+   ITEM FORM — two dropdowns instead of ten toggle buttons
+   ========================================================= */
+function newDraftItem(){
+  return { name:'', desc:'', price:100,
+           schedule:{ mode:'always', date:todayInputValue(), dom:new Date().getDate(), month:todayInputValue().slice(0,7) },
+           limitPer:'none', limitCount:1 };
+}
+function setDraftSchedule(mode){
+  draftItem.schedule.mode = mode;
+  renderMarketForm();
+}
+function setDraftScheduleField(field, value){
+  draftItem.schedule[field] = field === 'dom' ? Math.min(31, Math.max(1, Math.round(Number(value) || 1))) : value;
+  const el = document.getElementById('sched-hint');
+  if(el) el.textContent = scheduleSummary(draftItem);
+}
+function setDraftItemLimit(k){ draftItem.limitPer = k; renderMarketForm(); }
+/* Typing in the count box only rewrites the one line that depends on it,
+   so the caret stays where the fingers left it. */
+function limitHintText(d){
+  const per = limitOf(d), n = fmtPoints(limitCountOf(d));
+  if(per === 'total') return `มีทั้งหมด ${n} ครั้งเท่านั้น แลกครบแล้วหมดถาวร`;
+  const back = limitResetsOn(per, todayInputValue());
+  return `แลกได้ ${n} ครั้ง${limitWord(per) ? 'ต่อ' + limitWord(per).replace('นี้','') : ''} · ` +
+         `ครบแล้วเติมเองอัตโนมัติ ${back} ไม่ต้องมาตั้งใหม่`;
+}
+function setDraftItemCount(v){
+  draftItem.limitCount = v;
+  const el = document.getElementById('item-limit-hint');
+  if(el) el.textContent = limitHintText(draftItem);
+}
 
 function openNewItemForm(){
   draftItem = newDraftItem();
-  editingItemId = null; marketState = {mode:'form'}; marketSection = 'stock';
+  editingItemId = null; marketState = {mode:'form'}; marketSection = 'shop';
   marketFormSnapshot = JSON.stringify(draftItem);
   renderMarket();
 }
 function openEditItemForm(id){
   const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
-  draftItem = { name:it.name, desc:it.desc||'', price:it.price, cycle:cycleOf(it),
+  const s = scheduleOf(it);
+  draftItem = { name:it.name, desc:it.desc||'', price:it.price,
+                schedule:{ mode:s.mode,
+                           date:s.date || todayInputValue(),
+                           dom:s.dom || 1,
+                           month:s.month || todayInputValue().slice(0,7) },
                 limitPer:limitOf(it), limitCount:limitCountOf(it) };
-  editingItemId = id; marketState = {mode:'form'}; marketSection = 'stock';
+  editingItemId = id; marketState = {mode:'form'}; marketSection = 'shop';
   marketFormSnapshot = JSON.stringify(draftItem);
   renderMarket();
 }
 function cancelItemForm(){
   marketFormSnapshot = null; editingItemId = null;
-  marketState = {mode:'list'}; renderMarket();
+  marketState = {mode:'manage'}; renderMarket();
 }
 function saveItemForm(){
   const name = (draftItem.name||'').trim();
   if(!name){ showToast('ใส่ชื่อไอเทมก่อนบันทึก'); return; }
   const price = Math.max(1, Math.round(Number(draftItem.price) || 0));
-  const cycle = cycleOf(draftItem);
+  const mode = scheduleDef(draftItem.schedule.mode).key;
+  const needs = scheduleDef(mode).needs;
+  if(needs === 'date' && !draftItem.schedule.date){ showToast('เลือกวันที่ก่อน'); return; }
+  if(needs === 'month' && !draftItem.schedule.month){ showToast('เลือกเดือนก่อน'); return; }
+  const schedule = { mode };
+  if(needs === 'date')  schedule.date  = draftItem.schedule.date;
+  if(needs === 'dom')   schedule.dom   = Math.min(31, Math.max(1, Math.round(Number(draftItem.schedule.dom) || 1)));
+  if(needs === 'month') schedule.month = draftItem.schedule.month;
   const limitPer = limitOf(draftItem);
   const limitCount = limitCountOf(draftItem);
   if(editingItemId){
     const it = wallet.marketItems.find(x=>x.id===editingItemId);
-    Object.assign(it, { name, desc:(draftItem.desc||'').trim(), price, cycle, limitPer, limitCount });
+    Object.assign(it, { name, desc:(draftItem.desc||'').trim(), price, schedule, limitPer, limitCount });
+    delete it.cycle;                      // the schedule now says everything
   }else{
-    wallet.marketItems.push({ id:uid(), name, desc:(draftItem.desc||'').trim(), price, cycle,
+    wallet.marketItems.push({ id:uid(), name, desc:(draftItem.desc||'').trim(), price, schedule,
                               limitPer, limitCount, createdAt:new Date().toISOString() });
   }
   saveWallet();
   marketFormSnapshot = null; editingItemId = null;
-  marketState = {mode:'list'};
+  marketState = {mode:'manage'};
   renderMarket();
   showToast('บันทึกไอเทมแล้ว');
 }
@@ -3280,29 +3410,17 @@ function confirmDeleteItem(id, btnEl){
   renderMarket();
   showToast('ลบไอเทมแล้ว');
 }
-function redeemItem(id){
-  const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
-  const avail = itemAvailability(it);
-  if(!avail.ready){
-    showToast(avail.next ? 'ยังไม่ถึงรอบ กลับมาอีกครั้ง ' + avail.next : (avail.reason || 'ยังแลกไม่ได้'));
-    return;
-  }
-  if(!spendPoints(it.price, 'แลก: ' + it.name, 'market')){
-    showToast('คะแนนไม่พอ ต้องมีอีก ' + fmtPoints(it.price - wallet.balance) + ' แต้ม');
-    return;
-  }
-  wallet.redemptions.push({ id:uid(), itemId:it.id, name:it.name, price:it.price, redeemedAt:new Date().toISOString() });
-  saveWallet();
-  pushNotification('market', 'แลก ' + it.name + ' สำเร็จ', '-' + fmtPoints(it.price) + ' แต้ม · คงเหลือ ' + fmtPoints(wallet.balance) + ' แต้ม', {type:'market'});
-  renderMarket(); renderHome();
-  const after = quotaState(it);
-  showToast('แลก "' + it.name + '" แล้ว -' + fmtPoints(it.price) + ' แต้ม'
-    + (after.limited ? (after.left > 0 ? ' · ' + quotaChipText(after)
-                                       : ' · ' + (after.per === 'total' ? 'หมดแล้ว' : 'หมดโควตา' + limitWord(after.per))) : ''));
-}
 
 function renderMarketForm(){
   const el = document.getElementById('view-market');
+  const s = draftItem.schedule;
+  const needs = scheduleDef(s.mode).needs;
+  const extra =
+    needs === 'date'  ? `<input type="date" id="sched-date-input" value="${escapeHtml(s.date)}" oninput="setDraftScheduleField('date', this.value)">`
+  : needs === 'month' ? `<input type="month" id="sched-month-input" value="${escapeHtml(s.month)}" oninput="setDraftScheduleField('month', this.value)">`
+  : needs === 'dom'   ? `<input type="number" min="1" max="31" step="1" inputmode="numeric" id="sched-dom-input"
+                                value="${escapeHtml(String(s.dom))}" oninput="setDraftScheduleField('dom', this.value)">`
+  : '';
   el.innerHTML = `
     <button class="back-link" onclick="cancelItemForm()">‹ กลับ</button>
     <div class="form-block">
@@ -3319,27 +3437,22 @@ function renderMarketForm(){
         <input type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(draftItem.price))}" oninput="draftItem.price=this.value">
       </div>
       <div class="field">
-        <label>รอบการมา</label>
-        <div class="toggle-group">
-          ${MARKET_CYCLES.map(c=>`<button type="button" class="toggle-btn ${cycleOf(draftItem)===c.key?'active':''}" onclick="setDraftItemCycle('${c.key}')">${c.label}</button>`).join('')}
-        </div>
-        ${cycleOf(draftItem)==='random'
-          ? `<p class="field-hint">โผล่แบบสุ่ม ราว ${RANDOM_APPEAR_PERCENT}% ของวัน — วันไหนโผล่ก็แลกได้วันนั้น</p>`
-          : cycleOf(draftItem)!=='always'
-          ? `<p class="field-hint">แลกได้ครั้งเดียวต่อรอบ นับจากวันที่แลกล่าสุด</p>` : ''}
+        <label>วางขายเมื่อไร</label>
+        <select id="sched-mode-select" onchange="setDraftSchedule(this.value)">
+          ${SCHEDULES.map(c=>`<option value="${c.key}" ${s.mode===c.key?'selected':''}>${c.label}</option>`).join('')}
+        </select>
+        ${extra ? `<div class="sched-extra">${extra}</div>` : ''}
+        <p class="field-hint" id="sched-hint">${escapeHtml(scheduleSummary(draftItem))}</p>
       </div>
       <div class="field">
-        <label>จำนวนจำกัด</label>
-        <div class="toggle-group">
-          ${ITEM_LIMITS.map(l=>`<button type="button" class="toggle-btn ${limitOf(draftItem)===l.key?'active':''}" onclick="setDraftItemLimit('${l.key}')">${l.label}</button>`).join('')}
-        </div>
+        <label>จำนวนที่แลกได้</label>
+        <select id="item-limit-select" onchange="setDraftItemLimit(this.value)">
+          ${LIMIT_PERIODS.map(l=>`<option value="${l.key}" ${limitOf(draftItem)===l.key?'selected':''}>${l.label}</option>`).join('')}
+        </select>
         ${limitOf(draftItem)!=='none' ? `
-          <div class="rate-row" style="margin-top:10px">
-            <span class="rate-cell">
-              <label>แลกได้กี่ครั้ง</label>
-              <input type="number" min="1" step="1" inputmode="numeric" id="item-limit-input"
-                     value="${escapeHtml(String(limitCountOf(draftItem)))}" oninput="setDraftItemCount(this.value)">
-            </span>
+          <div class="sched-extra">
+            <input type="number" min="1" step="1" inputmode="numeric" id="item-limit-input"
+                   value="${escapeHtml(String(limitCountOf(draftItem)))}" oninput="setDraftItemCount(this.value)">
           </div>
           <p class="field-hint" id="item-limit-hint">${escapeHtml(limitHintText(draftItem))}</p>
         ` : ''}
@@ -3351,60 +3464,101 @@ function renderMarketForm(){
     </div>`;
 }
 
-function renderMarket(){ renderMarketImpl(); updateCashPreview(); updateRatePreview(); pushHistoryState(); }
+/* =========================================================
+   BUYING, AND THE BAG OF THINGS ALREADY BOUGHT
+   ========================================================= */
+function redeemItem(id){
+  const it = wallet.marketItems.find(x=>x.id===id); if(!it) return;
+  const avail = itemAvailability(it);
+  if(!avail.ready){
+    showToast(avail.next ? avail.reason + ' · กลับมา ' + avail.next : avail.reason);
+    return;
+  }
+  if(!spendPoints(it.price, 'แลก: ' + it.name, 'market')){
+    showToast('คะแนนไม่พอ ต้องมีอีก ' + fmtPoints(it.price - wallet.balance) + ' แต้ม');
+    return;
+  }
+  wallet.redemptions.push({ id:uid(), itemId:it.id, name:it.name, price:it.price, redeemedAt:new Date().toISOString() });
+  saveWallet();
+  pushNotification('market', 'ซื้อ ' + it.name + ' แล้ว', 'อยู่ในคลังของคุณ · -' + fmtPoints(it.price) + ' แต้ม', {type:'bag'});
+  renderMarket(); renderHome();
+  const after = quotaState(it);
+  showToast('ซื้อ "' + it.name + '" แล้ว เก็บไว้ในคลัง'
+    + (after.limited && after.left <= 0 ? ' · ' + quotaChipText(after) : ''));
+}
+/* The bag is just the redemptions, with a flag for the ones spent for real. */
+function markUsed(id){
+  const r = wallet.redemptions.find(x=>x.id===id); if(!r || r.usedAt) return;
+  r.usedAt = new Date().toISOString();
+  saveWallet(); renderMarket();
+  showToast('ใช้ "' + r.name + '" แล้ว');
+}
+function markUnused(id){
+  const r = wallet.redemptions.find(x=>x.id===id); if(!r || !r.usedAt) return;
+  delete r.usedAt;
+  saveWallet(); renderMarket();
+  showToast('เอากลับมาเป็นยังไม่ได้ใช้');
+}
+function bagRows(){
+  return [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt));
+}
+function unusedCount(){ return wallet.redemptions.filter(r=>!r.usedAt).length; }
 
-/* The market has two sides. The shop front is only what you can actually
-   take today — cycles that have come round, random items that turned up,
-   quotas with something left. The store room holds everything you own,
-   whether it is on the shelf or not, and is where items are made and
-   edited. Adding an item puts it in the store room; the shelf decides
-   for itself when it appears. */
+/* =========================================================
+   MARKET SCREENS — shop / manage / bag
+   ========================================================= */
 function switchMarket(section){
   if(!confirmLeaveIfDirty()) return;
   marketSection = section;
+  marketState = { mode:'list' };
+  renderMarket();
+}
+function openShopManage(){
+  if(!confirmLeaveIfDirty()) return;
+  marketSection = 'shop';
+  marketState = { mode:'manage' };
+  renderMarket();
+}
+function closeShopManage(){
+  marketState = { mode:'list' };
   renderMarket();
 }
 function marketSubtabsHtml(){
   const onShelf = wallet.marketItems.filter(it => itemAvailability(it).ready).length;
+  const bag = unusedCount();
   return `
     <div class="hub-subtabs">
-      <button type="button" class="hub-tab ${marketSection==='shop'?'active':''}" onclick="switchMarket('shop')">หน้าร้าน${onShelf?` (${fmtPoints(onShelf)})`:''}</button>
-      <button type="button" class="hub-tab ${marketSection==='stock'?'active':''}" onclick="switchMarket('stock')">คลัง (${fmtPoints(wallet.marketItems.length)})</button>
+      <button type="button" class="hub-tab ${marketSection==='shop'?'active':''}" onclick="switchMarket('shop')">ร้านค้า${onShelf?` (${fmtPoints(onShelf)})`:''}</button>
+      <button type="button" class="hub-tab ${marketSection==='bag'?'active':''}" onclick="switchMarket('bag')">คลังของฉัน${bag?` (${fmtPoints(bag)})`:''}</button>
     </div>`;
 }
-
-/* A random item that turned up leads, then whatever is takeable, then by price. */
-function sortedItems(list){
-  return [...list].sort((a,b)=>{
-    const A = itemAvailability(a), B = itemAvailability(b);
-    return (B.hot?1:0) - (A.hot?1:0) || (B.ready?1:0) - (A.ready?1:0) || a.price - b.price;
-  });
-}
-/* The chips that say why an item is special: its cycle, and what is left of it. */
 function itemChipsHtml(it, av){
-  const cyc = cycleOf(it);
+  const s = av.sched || scheduleOf(it);
   const q = av.quota || quotaState(it);
-  const cycleChip = cyc !== 'always'
-    ? `<span class="kind-chip ${av.hot?'hot':'repeat'}">${av.hot ? 'โผล่วันนี้!' : cycleLabel(cyc)}</span>` : '';
+  const schedChip = s.mode !== 'always'
+    ? `<span class="kind-chip ${av.hot?'hot':'repeat'}">${av.hot ? 'โผล่วันนี้!' : escapeHtml(scheduleShort(s.mode))}</span>` : '';
   const quotaChip = q.limited
     ? `<span class="kind-chip ${q.left>0?'repeat':''}">${escapeHtml(quotaChipText(q))}</span>` : '';
-  return cycleChip + quotaChip;
+  return schedChip + quotaChip;
 }
 
+/* --- the shop: buying, and nothing else --- */
 function shopHtml(){
-  const open = sortedItems(wallet.marketItems.filter(it => itemAvailability(it).ready));
-  const recent = [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt)).slice(0,5);
-  return cashDeskHtml() + `
+  const open = wallet.marketItems.filter(it => itemAvailability(it).ready)
+    .sort((a,b)=>{ const A = itemAvailability(a), B = itemAvailability(b);
+                   return (B.hot?1:0) - (A.hot?1:0) || a.price - b.price; });
+  return `
     <div class="list-head">
       <h2>วางขายวันนี้</h2>
+      <button class="btn btn-ghost btn-sm" onclick="openShopManage()">⚙ จัดการร้านค้า</button>
     </div>
     ${open.length===0 ? `
       <div class="empty">
         <div class="doodle">🏪</div>
         <p>${wallet.marketItems.length
-             ? 'วันนี้ยังไม่มีของวางขาย ของที่ถึงรอบหรือสุ่มโผล่จะขึ้นมาตรงนี้เอง'
-             : 'ยังไม่มีไอเทมเลย ไปตั้งรางวัลให้ตัวเองในคลังก่อน'}</p>
-        <button class="btn btn-primary" onclick="switchMarket('stock')">ไปที่คลัง</button>
+             ? 'วันนี้ยังไม่มีของวางขาย ของที่ถึงวันขายหรือสุ่มโผล่จะขึ้นมาตรงนี้เอง'
+             : 'ร้านยังว่าง ไปตั้งรางวัลให้ตัวเองในจัดการร้านค้าก่อน'}</p>
+        <button class="btn btn-primary" onclick="openShopManage()">จัดการร้านค้า</button>
       </div>` : `
       <div class="cards">
         ${open.map(it=>{
@@ -3419,45 +3573,37 @@ function shopHtml(){
             ${it.desc ? `<p class="card-snippet">${escapeHtml(it.desc)}</p>` : ''}
             <div class="item-card-foot">
               <button class="btn ${affordable ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="redeemItem('${it.id}')">
-                ${affordable ? 'แลกเลย' : 'ยังขาด ' + fmtPoints(it.price - wallet.balance) + ' แต้ม'}
+                ${affordable ? 'ซื้อเลย' : 'ยังขาด ' + fmtPoints(it.price - wallet.balance) + ' แต้ม'}
               </button>
             </div>
           </div>`;
         }).join('')}
-      </div>`}
-    ${recent.length ? `
-      <p class="mini-label">แลกไปแล้วล่าสุด</p>
-      <div class="cards">
-        ${recent.map(r=>`
-          <div class="ledger-row">
-            <div>
-              <p class="ledger-reason">${escapeHtml(r.name)}</p>
-              <p class="ledger-time">${fmtShortDate(r.redeemedAt)}</p>
-            </div>
-            <span class="points-badge minus">-${fmtPoints(r.price)}</span>
-          </div>`).join('')}
-      </div>` : ''}`;
+      </div>`}`;
 }
 
-/* One line per item saying, in plain words, why it is or is not on the shelf. */
-function stockStatusText(it, av){
+/* --- managing the shop: the rate, and every item whether on sale or not --- */
+function statusText(it, av){
   if(av.ready) return av.hot ? 'สุ่มโผล่วันนี้ — วางขายอยู่' : 'วางขายอยู่ตอนนี้';
-  if(av.next) return 'ยังไม่ถึงรอบ กลับมาวางขาย ' + av.next;
-  return av.reason || 'ยังแลกไม่ได้';
+  if(av.next) return av.reason + ' · ' + (av.nextIsReset ? 'เติมโควตาและกลับมา ' : 'กลับมา ') + av.next;
+  return av.reason;
 }
-
-function stockHtml(){
-  const items = sortedItems(wallet.marketItems);
+function manageHtml(){
+  const items = [...wallet.marketItems].sort((a,b)=>{
+    const A = itemAvailability(a), B = itemAvailability(b);
+    return (B.ready?1:0) - (A.ready?1:0) || a.price - b.price;
+  });
   const onShelf = items.filter(it => itemAvailability(it).ready).length;
   return `
+    <button class="back-link" onclick="closeShopManage()">‹ กลับไปหน้าร้าน</button>
+    ${cashDeskHtml()}
     <div class="list-head">
-      <h2>คลังไอเทม</h2>
+      <h2>ของในร้าน</h2>
       <button class="btn btn-primary btn-sm" onclick="openNewItemForm()">+ เพิ่มไอเทม</button>
     </div>
     ${items.length===0 ? `
       <div class="empty">
         <div class="doodle">🎁</div>
-        <p>คลังยังว่างอยู่ ลองตั้งรางวัลให้ตัวเอง เช่น ใบลาหยุด 1 วัน หรือของที่อยากซื้อ</p>
+        <p>ยังไม่มีของในร้าน ลองตั้งรางวัลให้ตัวเอง เช่น ใบลาหยุด 1 วัน หรือของที่อยากซื้อ</p>
         <button class="btn btn-primary" onclick="openNewItemForm()">+ เพิ่มไอเทมแรก</button>
       </div>` : `
       <p class="cash-total">มีทั้งหมด ${fmtPoints(items.length)} ชิ้น · วางขายวันนี้ ${fmtPoints(onShelf)} ชิ้น</p>
@@ -3471,9 +3617,10 @@ function stockHtml(){
               <span class="price-tag">${fmtPoints(it.price)} แต้ม</span>
             </div>
             ${it.desc ? `<p class="card-snippet">${escapeHtml(it.desc)}</p>` : ''}
-            <p class="field-hint">${escapeHtml(stockStatusText(it, av))}</p>
+            <p class="field-hint">${escapeHtml(scheduleSummary(it))}</p>
+            <p class="field-hint">${escapeHtml(statusText(it, av))}</p>
             <div class="item-card-foot">
-              ${av.ready ? `<button class="btn btn-ghost btn-sm" onclick="switchMarket('shop')">ดูที่หน้าร้าน ›</button>` : '<span></span>'}
+              <span></span>
               <span class="row-actions">
                 <button class="btn btn-ghost btn-sm" onclick="openEditItemForm('${it.id}')">แก้ไข</button>
                 <button class="btn btn-danger btn-sm" onclick="confirmDeleteItem('${it.id}', this)">ลบ</button>
@@ -3484,11 +3631,50 @@ function stockHtml(){
       </div>`}`;
 }
 
+/* --- the bag: what the points already bought --- */
+function bagHtml(){
+  const rows = bagRows();
+  const unused = rows.filter(r=>!r.usedAt);
+  const used = rows.filter(r=>r.usedAt);
+  const card = (r, isUsed) => `
+    <div class="card ${isUsed ? 'is-locked' : ''}">
+      <div class="card-top">
+        <p class="card-title">${escapeHtml(r.name)}${isUsed ? '<span class="kind-chip">ใช้แล้ว</span>' : ''}</p>
+        <span class="price-tag">${fmtPoints(r.price)} แต้ม</span>
+      </div>
+      <p class="field-hint">ซื้อเมื่อ ${fmtShortDate(r.redeemedAt)}${isUsed ? ' · ใช้เมื่อ ' + fmtShortDate(r.usedAt) : ''}</p>
+      <div class="item-card-foot">
+        ${isUsed
+          ? `<button class="btn btn-ghost btn-sm" onclick="markUnused('${r.id}')">ยังไม่ได้ใช้</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="markUsed('${r.id}')">ใช้เลย</button>`}
+        <span></span>
+      </div>
+    </div>`;
+  return `
+    <div class="list-head">
+      <h2>ของที่ซื้อไว้</h2>
+    </div>
+    ${rows.length===0 ? `
+      <div class="empty">
+        <div class="doodle">🎒</div>
+        <p>ยังไม่ได้ซื้ออะไร ของที่ซื้อจากร้านค้าจะมาเก็บไว้ที่นี่จนกว่าจะเอาไปใช้จริง</p>
+        <button class="btn btn-primary" onclick="switchMarket('shop')">ไปที่ร้านค้า</button>
+      </div>` : `
+      ${unused.length ? `<p class="cash-total">พร้อมใช้ ${fmtPoints(unused.length)} ชิ้น</p>
+        <div class="cards">${unused.map(r=>card(r,false)).join('')}</div>` :
+        `<p class="cash-total">ใช้ไปหมดแล้ว ยังไม่มีของที่รอใช้</p>`}
+      ${used.length ? `<p class="mini-label">ใช้ไปแล้ว</p>
+        <div class="cards">${used.map(r=>card(r,true)).join('')}</div>` : ''}`}`;
+}
+
+function renderMarket(){ renderMarketImpl(); updateCashPreview(); updateRatePreview(); pushHistoryState(); }
 function renderMarketImpl(){
   const el = document.getElementById('view-market');
   if(!el || !wallet) return;
   if(marketState.mode === 'form'){ renderMarketForm(); return; }
-  el.innerHTML = marketSubtabsHtml() + (marketSection === 'stock' ? stockHtml() : shopHtml());
+  if(marketSection === 'bag'){ el.innerHTML = marketSubtabsHtml() + bagHtml(); return; }
+  if(marketState.mode === 'manage'){ el.innerHTML = manageHtml(); return; }
+  el.innerHTML = marketSubtabsHtml() + shopHtml();
 }
 
 /* =========================================================
