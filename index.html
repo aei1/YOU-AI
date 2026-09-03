@@ -181,6 +181,7 @@
     display:flex; flex-direction:column; align-items:flex-start; gap:10px;
   }
   .danger-zone .field-hint{margin:0;}
+  .bag-history{margin-top:22px; padding-top:14px; border-top:1.5px dashed var(--paper-line);}
 
   .empty{text-align:center; padding:50px 16px; color:var(--ink-soft);}
   .empty p{margin:0 0 16px; font-size:15px;}
@@ -816,6 +817,7 @@ let appliedActions = [];               // ids of Claude actions already carried 
 let notebookState = { mode:'list' };
 let marketState = { mode:'list' };
 let marketSection = 'shop';           // 'shop' = the shop (and its manage screen), 'bag' = what you already bought
+let bagHistoryOpen = false;           // the bag's folded-away list of things already used
 let draftActivity = null, editingActivityId = null;
 let draftItem = null, editingItemId = null;
 let notebookFormSnapshot = null, marketFormSnapshot = null;
@@ -3610,13 +3612,13 @@ function markUsed(id){
   const r = wallet.redemptions.find(x=>x.id===id); if(!r || r.usedAt) return;
   r.usedAt = new Date().toISOString();
   saveWallet(); renderMarket();
-  showToast('ใช้ "' + r.name + '" แล้ว');
+  showToast('ใช้ "' + r.name + '" แล้ว · เอาออกจากคลังให้แล้ว');
 }
 function markUnused(id){
   const r = wallet.redemptions.find(x=>x.id===id); if(!r || !r.usedAt) return;
   delete r.usedAt;
   saveWallet(); renderMarket();
-  showToast('เอากลับมาเป็นยังไม่ได้ใช้');
+  showToast('เอา "' + r.name + '" กลับเข้าคลังแล้ว');
 }
 function bagRows(){
   return [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt));
@@ -3748,6 +3750,12 @@ function manageHtml(){
 }
 
 /* --- the bag: what the points already bought --- */
+/* The bag holds what you still have. Using something takes it out of the
+   bag — the record stays behind, because the purchase is what the limits
+   and the calendar are counted from, but it is folded away in a history
+   you only see if you ask for it. */
+function toggleBagHistory(){ bagHistoryOpen = !bagHistoryOpen; renderMarket(); }
+
 function bagHtml(){
   const rows = bagRows();
   const unused = rows.filter(r=>!r.usedAt);
@@ -3761,26 +3769,33 @@ function bagHtml(){
       <p class="field-hint">ซื้อเมื่อ ${fmtShortDate(r.redeemedAt)}${isUsed ? ' · ใช้เมื่อ ' + fmtShortDate(r.usedAt) : ''}</p>
       <div class="item-card-foot">
         ${isUsed
-          ? `<button class="btn btn-ghost btn-sm" onclick="markUnused('${r.id}')">ยังไม่ได้ใช้</button>`
+          ? `<button class="btn btn-ghost btn-sm" onclick="markUnused('${r.id}')">เอากลับเข้าคลัง</button>`
           : `<button class="btn btn-primary btn-sm" onclick="markUsed('${r.id}')">ใช้เลย</button>`}
         <span></span>
       </div>
     </div>`;
+  const history = used.length ? `
+    <div class="bag-history">
+      <button class="btn btn-ghost btn-sm" onclick="toggleBagHistory()">
+        ${bagHistoryOpen ? 'ซ่อนประวัติ' : 'ดูของที่ใช้ไปแล้ว ' + fmtPoints(used.length) + ' ชิ้น'}
+      </button>
+      ${bagHistoryOpen ? `<div class="cards" style="margin-top:12px;">${used.map(r=>card(r,true)).join('')}</div>` : ''}
+    </div>` : '';
   return `
     <div class="list-head">
       <h2>ของที่ซื้อไว้</h2>
     </div>
-    ${rows.length===0 ? `
+    ${unused.length ? `
+      <p class="cash-total">พร้อมใช้ ${fmtPoints(unused.length)} ชิ้น</p>
+      <div class="cards">${unused.map(r=>card(r,false)).join('')}</div>` : `
       <div class="empty">
         <div class="doodle">🎒</div>
-        <p>ยังไม่ได้ซื้ออะไร ของที่ซื้อจากร้านค้าจะมาเก็บไว้ที่นี่จนกว่าจะเอาไปใช้จริง</p>
+        <p>${rows.length
+             ? 'ใช้ไปหมดแล้ว ยังไม่มีของที่รอใช้'
+             : 'ยังไม่ได้ซื้ออะไร ของที่ซื้อจากร้านค้าจะมาเก็บไว้ที่นี่จนกว่าจะเอาไปใช้จริง'}</p>
         <button class="btn btn-primary" onclick="switchMarket('shop')">ไปที่ร้านค้า</button>
-      </div>` : `
-      ${unused.length ? `<p class="cash-total">พร้อมใช้ ${fmtPoints(unused.length)} ชิ้น</p>
-        <div class="cards">${unused.map(r=>card(r,false)).join('')}</div>` :
-        `<p class="cash-total">ใช้ไปหมดแล้ว ยังไม่มีของที่รอใช้</p>`}
-      ${used.length ? `<p class="mini-label">ใช้ไปแล้ว</p>
-        <div class="cards">${used.map(r=>card(r,true)).join('')}</div>` : ''}`}`;
+      </div>`}
+    ${history}`;
 }
 
 function renderMarket(){ renderMarketImpl(); updateCashPreview(); updateRatePreview(); pushHistoryState(); }
