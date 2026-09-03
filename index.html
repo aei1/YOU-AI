@@ -176,7 +176,11 @@
   .row-actions{display:flex; gap:8px; flex-wrap:wrap;}
   /* Deleting lives at the very bottom of the form it belongs to, fenced off
      from the save and cancel buttons so it is never a mis-tap. */
-  .danger-zone{margin-top:22px; padding-top:14px; border-top:1.5px dashed var(--paper-line);}
+  .danger-zone{
+    margin-top:22px; padding-top:14px; border-top:1.5px dashed var(--paper-line);
+    display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+  }
+  .danger-zone .field-hint{margin:0;}
 
   .empty{text-align:center; padding:50px 16px; color:var(--ink-soft);}
   .empty p{margin:0 0 16px; font-size:15px;}
@@ -2999,10 +3003,17 @@ function renderNotebookForm(){
       <button class="btn btn-primary" onclick="saveActivityForm()">บันทึกไว้</button>
       <button class="btn btn-ghost" onclick="cancelActivityForm()">ยกเลิก</button>
     </div>
-    ${editingActivityId ? `
+    ${editingActivityId ? (()=>{
+      const a = wallet.activities.find(x=>x.id===editingActivityId);
+      const rounds = a ? doneDatesOf(a).length : 0;
+      return `
       <div class="danger-zone">
+        ${rounds ? `
+          <p class="field-hint">ทำมาแล้ว ${fmtPoints(rounds)} ครั้ง · กดยกเลิกถ้าบันทึกผิด แต้มจะถูกหักคืน</p>
+          <button class="btn btn-ghost btn-sm" onclick="undoActivityDone('${editingActivityId}')">ยกเลิกครั้งล่าสุด -${fmtPoints(a.points)}</button>` : ''}
         <button class="btn btn-danger btn-sm" onclick="confirmDeleteActivity('${editingActivityId}', this)">ลบภารกิจนี้</button>
-      </div>` : ''}`;
+      </div>`;
+    })() : ''}`;
 }
 
 function renderNotebook(){ renderHub(); pushHistoryState(); }
@@ -3051,7 +3062,6 @@ function renderNotebookImpl(){
             <div class="item-card-foot">
               <span class="row-actions">
               ${due ? `<button class="btn ${isDueNow(a)?'btn-primary':'btn-ghost'} btn-sm" onclick="markActivityDone('${a.id}')">ทำเสร็จแล้ว +${fmtPoints(a.points)}</button>` : ''}
-              ${rounds ? `<button class="btn btn-ghost btn-sm" onclick="undoActivityDone('${a.id}')">ยกเลิกครั้งล่าสุด</button>` : ''}
               </span>
               <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
             </div>
