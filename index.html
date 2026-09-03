@@ -3620,6 +3620,21 @@ function markUnused(id){
   saveWallet(); renderMarket();
   showToast('เอา "' + r.name + '" กลับเข้าคลังแล้ว');
 }
+function sellBackRedemption(id, btnEl){
+  const r = wallet.redemptions.find(x => x.id === id);
+  if(!r || r.usedAt) return;
+  if(btnEl.dataset.confirm !== '1'){
+    const was = btnEl.textContent;
+    btnEl.dataset.confirm = '1'; btnEl.textContent = 'ยืนยันขายคืน?';
+    setTimeout(()=>{ if(btnEl.isConnected){ btnEl.dataset.confirm=''; btnEl.textContent = was; } }, 3000);
+    return;
+  }
+  wallet.redemptions.splice(wallet.redemptions.indexOf(r), 1);
+  addPoints(r.price, 'ขายคืน: ' + r.name, 'market');
+  saveWallet();
+  renderMarket(); renderHome();
+  showToast('ขายคืน "' + r.name + '" แล้ว +' + fmtPoints(r.price) + ' แต้ม');
+}
 function bagRows(){
   return [...wallet.redemptions].sort((a,b)=> new Date(b.redeemedAt) - new Date(a.redeemedAt));
 }
@@ -3771,7 +3786,8 @@ function bagHtml(){
         ${isUsed
           ? `<button class="btn btn-ghost btn-sm" onclick="markUnused('${r.id}')">เอากลับเข้าคลัง</button>`
           : `<button class="btn btn-primary btn-sm" onclick="markUsed('${r.id}')">ใช้เลย</button>`}
-        <span></span>
+        ${isUsed ? '<span></span>'
+          : `<button class="btn btn-ghost btn-sm" onclick="sellBackRedemption('${r.id}', this)">ขายคืน +${fmtPoints(r.price)}</button>`}
       </div>
     </div>`;
   const history = used.length ? `
