@@ -1407,6 +1407,23 @@ function addPoints(amount, reason, source){
   return amt;
 }
 /* Returns false (and changes nothing) when the balance is too low. */
+/* Undoing something the app itself paid out has to go through whatever the
+   balance is. Spending is refused when you are short — otherwise you could
+   buy what you cannot afford — but a claw-back must never be refused, or a
+   task whose points were already spent could never be undone or deleted and
+   the app would be stuck with it forever. The balance may dip below zero;
+   the ledger stays exact and it climbs back as you earn. */
+function takeBackPoints(amount, reason, source){
+  const amt = Math.max(0, Math.round(Number(amount) || 0));
+  if(!amt) return 0;
+  wallet.balance -= amt;
+  wallet.ledger.push({ id:uid(), timestamp:new Date().toISOString(), amount:-amt, reason:reason||'', source:source||'notebook' });
+  saveWallet();
+  return amt;
+}
+/* Said once, whenever a claw-back has left the balance under water. */
+function oweNote(){ return wallet.balance < 0 ? ' · แต้มติดลบ ' + fmtPoints(wallet.balance) + ' ทำภารกิจแล้วจะกลับมาเอง' : ''; }
+
 function spendPoints(amount, reason, source){
   const amt = Math.max(0, Math.round(Number(amount) || 0));
   if(!amt) return false;
@@ -2300,9 +2317,7 @@ function rebalanceReadPoints(it, newPoints, label){
   const diff = newPoints - paid;
   if(!diff) return true;
   if(diff > 0) addPoints(diff, 'แก้ไข: ' + label, 'notebook');
-  else if(!spendPoints(-diff, 'แก้ไข: ' + label, 'notebook')){
-    showToast('ลดคะแนนไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return false;
-  }
+  else takeBackPoints(-diff, 'แก้ไข: ' + label, 'notebook');
   it.pointsAwarded = newPoints || true;
   return true;
 }
@@ -2311,9 +2326,7 @@ function rebalanceReadPoints(it, newPoints, label){
 function reclaimReadPoints(it, label){
   const paid = paidReadPoints(it);
   if(!paid) return true;
-  if(!spendPoints(paid, 'ลบ: ' + label, 'notebook')){
-    showToast('ลบไม่ได้ เพราะคะแนนคงเหลือไม่พอจะหักคืน'); return false;
-  }
+  takeBackPoints(paid, 'ลบ: ' + label, 'notebook');
   return true;
 }
 function toggleNoteCompleted(id){ toggleReadDone('lesson', id); }
@@ -2872,13 +2885,11 @@ function undoActivityDone(id){
   if(!a) return;
   const done = doneDatesOf(a);
   if(!done.length) return;
-  if(!spendPoints(a.points, 'ยกเลิก: ' + a.title, 'notebook')){
-    showToast('ยกเลิกไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return;
-  }
+  takeBackPoints(a.points, 'ยกเลิก: ' + a.title, 'notebook');
   a.doneDates = done.slice(0, -1);
   saveWallet();
   renderNotebook(); renderHome();
-  showToast('ยกเลิกแล้ว -' + fmtPoints(a.points) + ' แต้ม');
+  showToast('ยกเลิกแล้ว -' + fmtPoints(a.points) + ' แต้ม' + oweNote());
 }
 function todayInputValue(){
   const d = new Date(), p = n => String(n).padStart(2,'0');
@@ -2914,16 +2925,13 @@ function saveActivityForm(){
 
   if(editingActivityId){
     // Editing re-balances by the difference, times however many rounds this
-    // one has already paid out, so the ledger stays truthful.
+    // one has already paid out, so the ledger stays truthful. A task not yet
+    // done has paid nothing, so changing its value settles nothing.
     const a = wallet.activities.find(x=>x.id===editingActivityId);
-    const rounds = doneDatesOf(a).length || 1;
+    const rounds = doneDatesOf(a).length;
     const diff = (points - a.points) * rounds;
     if(diff > 0) addPoints(diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
-    else if(diff < 0){
-      if(!spendPoints(-diff, 'แก้ไขกิจกรรม: ' + title, 'notebook')){
-        showToast('ลดคะแนนไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return;
-      }
-    }
+    else if(diff < 0) takeBackPoints(-diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
     Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date, repeat:draftActivity.repeat||'none' });
     saveWallet();
     showToast('แก้ไขกิจกรรมแล้ว');
@@ -2949,16 +2957,14 @@ function confirmDeleteActivity(id, btnEl){
   const idx = wallet.activities.findIndex(a=>a.id===id);
   if(idx===-1) return;
   const a = wallet.activities[idx];
-  const owed = a.points * (doneDatesOf(a).length || 1);   // every round it paid out
-  if(!spendPoints(owed, 'ลบกิจกรรม: ' + a.title, 'notebook')){
-    showToast('ลบไม่ได้ เพราะคะแนนคงเหลือไม่พอจะหักคืน'); return;
-  }
+  const owed = a.points * doneDatesOf(a).length;          // every round it paid out
+  takeBackPoints(owed, 'ลบกิจกรรม: ' + a.title, 'notebook');
   wallet.activities.splice(idx,1);
   saveWallet();
   notebookFormSnapshot = null; editingActivityId = null;
   notebookState = {mode:'list'};
   renderNotebook(); renderHome();
-  showToast('ลบกิจกรรมแล้ว -' + fmtPoints(owed) + ' แต้ม');
+  showToast('ลบกิจกรรมแล้ว' + (owed ? ' -' + fmtPoints(owed) + ' แต้ม' : '') + oweNote());
 }
 
 function balanceCardHtml(sub){
