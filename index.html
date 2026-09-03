@@ -2995,7 +2995,9 @@ function rateLine(r){ return `${fmtPoints(r.points)} แต้ม = ${fmtCash(r.
 function openRateForm(){
   const r = exchangeRate();
   draftRate = { points:r.points, amount:r.amount, currency:r.currency };
-  rateFormOpen = true; renderMarket();
+  rateFormOpen = true;
+  marketSection = 'shop'; marketState = { mode:'manage' };
+  renderMarket();
 }
 function cancelRateForm(){ rateFormOpen = false; draftRate = null; renderMarket(); }
 function updateRatePreview(){
@@ -3057,9 +3059,11 @@ function deleteCashOut(id, btnEl){
   showToast('คืนแต้มแล้ว +' + fmtPoints(c.points));
 }
 
-function cashDeskHtml(){
+/* Two halves of the same idea, on two screens. Setting the rate is shop
+   keeping, so it sits in จัดการร้านค้า; spending points on money is just
+   another kind of buying, so it stays out front with the items. */
+function rateCardHtml(){
   const r = exchangeRate();
-  const totalOut = wallet.cashOuts.reduce((s,c)=> s + c.amount, 0);
   if(rateFormOpen){
     return `
       <div class="cash-card">
@@ -3093,8 +3097,21 @@ function cashDeskHtml(){
   return `
     <div class="cash-card">
       <div class="cash-head">
-        <p class="cash-title">แลกแต้มเป็นเงิน</p>
+        <p class="cash-title">อัตราแลกเปลี่ยน</p>
         <button class="btn btn-ghost btn-sm" onclick="openRateForm()">ตั้งอัตรา</button>
+      </div>
+      <p class="cash-rate">${fmtPoints(r.points)} แต้ม = ${fmtCash(r.amount)} ${escapeHtml(r.currency)}</p>
+      <p class="field-hint">ใช้ตอนแลกแต้มเป็นเงินที่หน้าร้านค้า</p>
+    </div>`;
+}
+
+function cashExchangeHtml(){
+  const r = exchangeRate();
+  const totalOut = wallet.cashOuts.reduce((s,c)=> s + c.amount, 0);
+  return `
+    <div class="cash-card">
+      <div class="cash-head">
+        <p class="cash-title">แลกแต้มเป็นเงิน</p>
       </div>
       <p class="cash-rate">${fmtPoints(r.points)} แต้ม = ${fmtCash(r.amount)} ${escapeHtml(r.currency)}</p>
       <div class="cash-row">
@@ -3547,7 +3564,7 @@ function shopHtml(){
   const open = wallet.marketItems.filter(it => itemAvailability(it).ready)
     .sort((a,b)=>{ const A = itemAvailability(a), B = itemAvailability(b);
                    return (B.hot?1:0) - (A.hot?1:0) || a.price - b.price; });
-  return `
+  return cashExchangeHtml() + `
     <div class="list-head">
       <h2>วางขายวันนี้</h2>
       <button class="btn btn-ghost btn-sm" onclick="openShopManage()">⚙ จัดการร้านค้า</button>
@@ -3595,7 +3612,7 @@ function manageHtml(){
   const onShelf = items.filter(it => itemAvailability(it).ready).length;
   return `
     <button class="back-link" onclick="closeShopManage()">‹ กลับไปหน้าร้าน</button>
-    ${cashDeskHtml()}
+    ${rateCardHtml()}
     <div class="list-head">
       <h2>ของในร้าน</h2>
       <button class="btn btn-primary btn-sm" onclick="openNewItemForm()">+ เพิ่มไอเทม</button>
