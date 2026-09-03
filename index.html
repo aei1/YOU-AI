@@ -943,6 +943,16 @@ function relatedHtml(item, kind){
     </div>`;
 }
 /* Tag input field shared by both forms. */
+function readPointsFieldHtml(draftKey, draft){
+  return `
+    <div class="field">
+      <label>อ่านจบแล้วได้กี่แต้ม</label>
+      <input type="number" min="0" step="1" inputmode="numeric" id="${draftKey}-points-input"
+             value="${escapeHtml(String(draft.points != null ? draft.points : READ_POINTS_DEFAULT))}"
+             oninput="${draftKey === 'journal' ? 'draftJournal' : 'draftNote'}.points = this.value">
+      <p class="field-hint">ได้แต้มตอนกดว่าอ่านจบ ไม่ใช่ตอนสร้าง · ใส่ 0 ถ้าไม่อยากให้ได้แต้ม</p>
+    </div>`;
+}
 function tagFieldHtml(draftKey){
   const current = (draftKey==='note' ? draftNote.tags : draftQuiz.tags) || [];
   const used = current.map(normTag);
@@ -1866,6 +1876,7 @@ function eventsByDay(){
     wallet.redemptions.forEach(r => put(isoToDayKey(r.redeemedAt), { kind:'market', title:'แลก ' + r.name, meta:`-${fmtPoints(r.price)} แต้ม` }));
   }
   notes.filter(n => n.completed).forEach(n => put(isoToDayKey(n.completedAt || n.updatedAt), { kind:'lesson', title:'เรียนจบ: ' + n.title, meta:'' }));
+  journal.filter(j => j.completed).forEach(j => put(isoToDayKey(j.completedAt || j.updatedAt), { kind:'lesson', title:'อ่านจบ: ' + j.title, meta:'' }));
   quizzes.filter(q => q.lastAttemptDate).forEach(q => put(isoToDayKey(q.lastAttemptDate),
     { kind:'quiz', title:'ทำแบบฝึกหัด: ' + q.title, meta: q.bestScore!=null ? `ได้ ${q.bestScore}/${q.bestTotal}` : '' }));
   events.forEach(e => put(e.date, { kind:'custom', title:e.title, meta:e.note || '', id:e.id }));
@@ -2123,8 +2134,9 @@ function renderHome(){
    ========================================================= */
 
 function openNewNoteForm(){
-  draftNote = { title:'', lang:'en', format:'freeform', content:'', tags:[], entries:[{id:uid(),word:'',reading:'',meaning:'',example:''}] };
-  editingNoteId = null; notesState = {mode:'form'};
+  draftNote = { title:'', lang:'en', format:'freeform', content:'', tags:[], points:READ_POINTS_DEFAULT,
+                entries:[{id:uid(),word:'',reading:'',meaning:'',example:''}] };
+  editingNoteId = null; notesState = {mode:'form'}; journalState = {mode:'list'};
   noteFormSnapshot = JSON.stringify(draftNote);
   renderNotes();
 }
@@ -2132,10 +2144,10 @@ function openEditNoteForm(id){
   const n = notes.find(x=>x.id===id); if(!n) return;
   draftNote = {
     title:n.title, lang:n.lang||'en', format:n.format||'freeform', content:n.content||'',
-    tags: itemTags(n).slice(),
+    tags: itemTags(n).slice(), points: readPointsOf(n),
     entries: (n.entries&&n.entries.length) ? n.entries.map(e=>({...e})) : [{id:uid(),word:'',reading:'',meaning:'',example:''}]
   };
-  editingNoteId = id; notesState = {mode:'form'};
+  editingNoteId = id; notesState = {mode:'form'}; journalState = {mode:'list'};
   noteFormSnapshot = JSON.stringify(draftNote);
   renderNotes();
 }
@@ -2187,6 +2199,7 @@ function renderNoteForm(){
           <button type="button" class="toggle-btn ${draftNote.format==='vocab'?'active':''}" onclick="setDraftNoteFormat('vocab')">คำศัพท์</button>
         </div>
       </div>
+      ${readPointsFieldHtml('note', draftNote)}
       ${tagFieldHtml('note')}
     </div>
     ${draftNote.format==='freeform' ? `
@@ -2216,11 +2229,13 @@ function saveNoteForm(){
     draftNote.entries = validEntries.map(e=>({...e, word:e.word.trim(), reading:e.reading.trim(), meaning:e.meaning.trim(), example:e.example.trim()}));
   }
   const tags = parseTags((draftNote.tags||[]).join(' '));
+  const points = Math.max(0, Math.round(Number(draftNote.points) || 0));
   if(editingNoteId){
     const n = notes.find(x=>x.id===editingNoteId);
-    Object.assign(n, { title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, updatedAt:new Date().toISOString() });
+    if(!rebalanceReadPoints(n, points, title)) return;
+    Object.assign(n, { title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, points, updatedAt:new Date().toISOString() });
   }else{
-    notes.push({ id:uid(), title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, completed:false, updatedAt:new Date().toISOString() });
+    notes.push({ id:uid(), title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, points, completed:false, updatedAt:new Date().toISOString() });
   }
   saveNotes();
   noteFormSnapshot = null;
@@ -2229,23 +2244,70 @@ function saveNoteForm(){
   showToast('บันทึกเรียบร้อยแล้ว');
 }
 
-const LESSON_POINTS = 10;
-function toggleNoteCompleted(id){
-  const n = notes.find(x=>x.id===id);
-  if(!n) return;
-  n.completed = !n.completed;
-  // Finishing a lesson pays out once. Un-ticking it doesn't claw the
-  // points back, and re-ticking doesn't pay twice.
-  if(n.completed && !n.completedAt) n.completedAt = new Date().toISOString();
-  if(n.completed && !n.pointsAwarded){
-    n.pointsAwarded = true;
-    addPoints(LESSON_POINTS, 'อ่านจบ: ' + n.title, 'notebook');
-    pushNotification('points', '+' + fmtPoints(LESSON_POINTS) + ' แต้ม', 'อ่านจบ: ' + n.title, {type:'lesson', id:n.id});
-    showToast('อ่านจบแล้ว +' + fmtPoints(LESSON_POINTS) + ' แต้ม');
-  }
-  saveNotes();
-  renderNotes();
+/* Reading earns points the same way doing a task does: the amount is set on
+   the item, and it is paid once, when you mark it read. Lessons and free
+   notes are two collections but one rule, so it lives here once. */
+const READ_POINTS_DEFAULT = 10;
+function readPointsOf(it){
+  const v = it && it.points;
+  return v == null ? READ_POINTS_DEFAULT : Math.max(0, Math.round(Number(v) || 0));
 }
+/* What this item actually paid. Items marked read before points were
+   settable stored `true`, and back then the rate was the default. */
+function paidReadPoints(it){
+  const p = it && it.pointsAwarded;
+  if(!p) return 0;
+  return p === true ? READ_POINTS_DEFAULT : Math.max(0, Math.round(Number(p) || 0));
+}
+function readCollection(kind){ return kind === 'journal' ? journal : notes; }
+function saveRead(kind){ return kind === 'journal' ? saveJournal() : saveNotes(); }
+function renderRead(kind){ return kind === 'journal' ? renderJournal() : renderNotes(); }
+
+function toggleReadDone(kind, id){
+  const it = readCollection(kind).find(x => x.id === id);
+  if(!it) return;
+  it.completed = !it.completed;
+  // Reading pays out once. Un-ticking doesn't claw the points back, and
+  // re-ticking doesn't pay twice.
+  if(it.completed && !it.completedAt) it.completedAt = new Date().toISOString();
+  if(it.completed && !it.pointsAwarded){
+    const pts = readPointsOf(it);
+    it.pointsAwarded = pts || true;          // remember what was paid
+    if(pts > 0){
+      addPoints(pts, 'อ่านจบ: ' + it.title, 'notebook');
+      pushNotification('points', '+' + fmtPoints(pts) + ' แต้ม', 'อ่านจบ: ' + it.title, {type:kind, id:it.id});
+    }
+    showToast(pts > 0 ? 'อ่านจบแล้ว +' + fmtPoints(pts) + ' แต้ม' : 'อ่านจบแล้ว');
+  }
+  saveRead(kind);
+  renderRead(kind);
+  renderHome();
+}
+/* Changing the value after it has already paid settles the difference, so
+   the ledger keeps matching what the item says it is worth. */
+function rebalanceReadPoints(it, newPoints, label){
+  const paid = paidReadPoints(it);
+  if(!paid) return true;
+  const diff = newPoints - paid;
+  if(!diff) return true;
+  if(diff > 0) addPoints(diff, 'แก้ไข: ' + label, 'notebook');
+  else if(!spendPoints(-diff, 'แก้ไข: ' + label, 'notebook')){
+    showToast('ลดคะแนนไม่ได้ เพราะคะแนนคงเหลือไม่พอ'); return false;
+  }
+  it.pointsAwarded = newPoints || true;
+  return true;
+}
+/* Deleting something that already paid takes the points back, so a note
+   cannot be read, deleted and read again for more. */
+function reclaimReadPoints(it, label){
+  const paid = paidReadPoints(it);
+  if(!paid) return true;
+  if(!spendPoints(paid, 'ลบ: ' + label, 'notebook')){
+    showToast('ลบไม่ได้ เพราะคะแนนคงเหลือไม่พอจะหักคืน'); return false;
+  }
+  return true;
+}
+function toggleNoteCompleted(id){ toggleReadDone('lesson', id); }
 
 /* ---- Flashcard review (vocab notes) ---- */
 function startFlashcards(noteId){
@@ -2305,15 +2367,18 @@ function confirmDeleteNote(id, btnEl){
   const idx = notes.findIndex(n=>n.id===id);
   if(idx===-1) return;
   const removed = notes[idx];
+  const paid = paidReadPoints(removed);
+  if(!reclaimReadPoints(removed, removed.title)) return;
   notes.splice(idx,1);
   saveNotes();
   notesState = {mode:'list'};
-  renderNotes();
-  showToast('ลบบทเรียนแล้ว', ()=>{
+  renderNotes(); renderHome();
+  showToast('ลบบทเรียนแล้ว' + (paid ? ' -' + fmtPoints(paid) + ' แต้ม' : ''), ()=>{
     notes.splice(idx,0,removed);
+    if(paid) addPoints(paid, 'กู้คืน: ' + removed.title, 'notebook');
     saveNotes();
     notesState = {mode:'detail', id};
-    renderNotes();
+    renderNotes(); renderHome();
   });
 }
 
@@ -2343,7 +2408,7 @@ function renderNotesImpl(){
       ${bodyHtml}
       <div class="row-actions" style="margin-top:16px;">
         ${note.format==='vocab' && note.entries.length ? `<button class="btn btn-highlight" onclick="startFlashcards('${note.id}')">ทบทวนคำศัพท์ (flashcard)</button>` : ''}
-        <button class="btn btn-complete ${note.completed?'is-done':''}" onclick="toggleNoteCompleted('${note.id}')">${note.completed? 'เรียนแล้ว ✓' : 'ทำเครื่องหมายว่าเรียนแล้ว'}</button>
+        <button class="btn btn-complete ${note.completed?'is-done':''}" onclick="toggleNoteCompleted('${note.id}')">${note.completed? 'เรียนแล้ว ✓' : 'อ่านจบแล้ว +' + fmtPoints(readPointsOf(note)) + ' แต้ม'}</button>
         <button class="btn btn-ghost" onclick="openEditNoteForm('${note.id}')">แก้ไข</button>
         <button class="btn btn-danger" id="del-note-btn" onclick="confirmDeleteNote('${note.id}', this)">ลบบทเรียนนี้</button>
       </div>
@@ -2601,18 +2666,18 @@ function renderQuizResult(){
 /* =========================================================
    JOURNAL (general notes: game guides, recipes, ideas, etc.)
    ========================================================= */
-function newDraftJournal(){ return { title:'', content:'', tags:[] }; }
+function newDraftJournal(){ return { title:'', content:'', tags:[], points:READ_POINTS_DEFAULT }; }
 
 function openNewJournalForm(){
   draftJournal = newDraftJournal();
-  editingJournalId = null; journalState = {mode:'form'};
+  editingJournalId = null; journalState = {mode:'form'}; notesState = {mode:'list'};
   journalFormSnapshot = JSON.stringify(draftJournal);
   renderJournal();
 }
 function openEditJournalForm(id){
   const j = journal.find(x=>x.id===id); if(!j) return;
-  draftJournal = { title:j.title, content:j.content||'', tags: itemTags(j).slice() };
-  editingJournalId = id; journalState = {mode:'form'};
+  draftJournal = { title:j.title, content:j.content||'', tags: itemTags(j).slice(), points: readPointsOf(j) };
+  editingJournalId = id; journalState = {mode:'form'}; notesState = {mode:'list'};
   journalFormSnapshot = JSON.stringify(draftJournal);
   renderJournal();
 }
@@ -2628,6 +2693,7 @@ function renderJournalForm(){
         <label>หัวข้อ</label>
         <input type="text" id="journal-title-input" placeholder="เช่น สูตรตี Boss, ไอเดียใหม่" value="${escapeHtml(draftJournal.title)}" oninput="draftJournal.title=this.value">
       </div>
+      ${readPointsFieldHtml('journal', draftJournal)}
       <div class="field">
         <label>แท็ก / หมวดหมู่ (คั่นด้วยเว้นวรรคหรือจุลภาค)</label>
         <input type="text" id="tag-input-journal" placeholder="เช่น เกม สูตรอาหาร ไอเดีย"
@@ -2649,14 +2715,16 @@ function saveJournalForm(){
   const title = (draftJournal.title||'').trim() || 'ไม่มีหัวข้อ';
   if(!draftJournal.content.trim()){ showToast('กรุณาใส่เนื้อหาก่อนบันทึก'); return; }
   const tags = parseTags((draftJournal.tags||[]).join(' '));
+  const points = Math.max(0, Math.round(Number(draftJournal.points) || 0));
   let savedId;
   if(editingJournalId){
     const j = journal.find(x=>x.id===editingJournalId);
-    Object.assign(j, { title, content:draftJournal.content, tags, updatedAt:new Date().toISOString() });
+    if(!rebalanceReadPoints(j, points, title)) return;
+    Object.assign(j, { title, content:draftJournal.content, tags, points, updatedAt:new Date().toISOString() });
     savedId = editingJournalId;
   }else{
     savedId = uid();
-    journal.push({ id:savedId, title, content:draftJournal.content, tags, updatedAt:new Date().toISOString() });
+    journal.push({ id:savedId, title, content:draftJournal.content, tags, points, completed:false, updatedAt:new Date().toISOString() });
   }
   saveJournal();
   journalFormSnapshot = null;
@@ -2675,15 +2743,18 @@ function confirmDeleteJournal(id, btnEl){
   const idx = journal.findIndex(j=>j.id===id);
   if(idx===-1) return;
   const removed = journal[idx];
+  const paid = paidReadPoints(removed);
+  if(!reclaimReadPoints(removed, removed.title)) return;
   journal.splice(idx,1);
   saveJournal();
   journalState = {mode:'list'};
-  renderJournal();
-  showToast('ลบโน้ตแล้ว', ()=>{
+  renderJournal(); renderHome();
+  showToast('ลบโน้ตแล้ว' + (paid ? ' -' + fmtPoints(paid) + ' แต้ม' : ''), ()=>{
     journal.splice(idx,0,removed);
+    if(paid) addPoints(paid, 'กู้คืน: ' + removed.title, 'notebook');
     saveJournal();
     journalState = {mode:'detail', id};
-    renderJournal();
+    renderJournal(); renderHome();
   });
 }
 
@@ -2699,11 +2770,12 @@ function renderJournalImpl(){
     if(!j){ journalState={mode:'list'}; renderJournal(); return; }
     el.innerHTML = `
       <button class="back-link" onclick="journalState={mode:'list'}; renderJournal();">‹ กลับ</button>
-      <h2 class="detail-title">${escapeHtml(j.title)}</h2>
+      <h2 class="detail-title">${escapeHtml(j.title)}${j.completed?'<span class="check-mark">✓</span>':''}</h2>
       <p class="detail-meta">แก้ไขล่าสุด ${fmtShortDate(j.updatedAt)}</p>
       ${tagChipsHtml(itemTags(j), 'filterJournalByTag')}
       <div class="detail-content">${mdToHtml(j.content)}</div>
       <div class="row-actions" style="margin-top:16px;">
+        <button class="btn btn-complete ${j.completed?'is-done':''}" onclick="toggleReadDone('journal','${j.id}')">${j.completed ? 'อ่านแล้ว ✓' : 'อ่านจบแล้ว +' + fmtPoints(readPointsOf(j)) + ' แต้ม'}</button>
         <button class="btn btn-ghost" onclick="openEditJournalForm('${j.id}')">แก้ไข</button>
         <button class="btn btn-danger" id="del-journal-btn" onclick="confirmDeleteJournal('${j.id}', this)">ลบโน้ตนี้</button>
       </div>
@@ -3726,7 +3798,7 @@ function readItems(){
   }));
   const free = journal.map(j=>({
     kind:'note', id:j.id, title:j.title, tags:itemTags(j), updatedAt:j.updatedAt,
-    completed:false, snippet: stripMd(j.content).slice(0,80)
+    completed:!!j.completed, snippet: stripMd(j.content).slice(0,80)
   }));
   const pool = readFilter === 'note' ? free
              : readFilter === 'all'  ? [...lessons, ...free]
