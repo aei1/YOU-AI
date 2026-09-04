@@ -1407,12 +1407,12 @@ function addPoints(amount, reason, source){
   return amt;
 }
 /* Returns false (and changes nothing) when the balance is too low. */
-/* Undoing something the app itself paid out has to go through whatever the
-   balance is. Spending is refused when you are short — otherwise you could
-   buy what you cannot afford — but a claw-back must never be refused, or a
-   task whose points were already spent could never be undone or deleted and
-   the app would be stuck with it forever. The balance may dip below zero;
-   the ledger stays exact and it climbs back as you earn. */
+/* Undoing a payout has to go through whatever the balance is. Spending is
+   refused when you are short — otherwise you could buy what you cannot
+   afford — but a claw-back must never be refused, or a round ticked by
+   mistake after the points were spent could never be taken back. Only
+   ยกเลิกครั้งล่าสุด comes through here; deleting and re-pricing leave the
+   balance alone. It may dip below zero, and it climbs back as you earn. */
 function takeBackPoints(amount, reason, source){
   const amt = Math.max(0, Math.round(Number(amount) || 0));
   if(!amt) return 0;
@@ -2258,7 +2258,6 @@ function saveNoteForm(){
   const points = Math.max(0, Math.round(Number(draftNote.points) || 0));
   if(editingNoteId){
     const n = notes.find(x=>x.id===editingNoteId);
-    if(!rebalanceReadPoints(n, points, title)) return;
     Object.assign(n, { title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, points, updatedAt:new Date().toISOString() });
   }else{
     notes.push({ id:uid(), title, lang:draftNote.lang, format:draftNote.format, content:draftNote.content, tags, entries:draftNote.entries, points, completed:false, updatedAt:new Date().toISOString() });
@@ -2278,13 +2277,9 @@ function readPointsOf(it){
   const v = it && it.points;
   return v == null ? READ_POINTS_DEFAULT : Math.max(0, Math.round(Number(v) || 0));
 }
-/* What this item actually paid. Items marked read before points were
-   settable stored `true`, and back then the rate was the default. */
-function paidReadPoints(it){
-  const p = it && it.pointsAwarded;
-  if(!p) return 0;
-  return p === true ? READ_POINTS_DEFAULT : Math.max(0, Math.round(Number(p) || 0));
-}
+/* `pointsAwarded` is the "already paid" stamp — the amount, these days;
+   a bare `true` on anything marked read before the amount was settable.
+   Either way it only ever answers "has this one paid yet?". */
 function readCollection(kind){ return kind === 'journal' ? journal : notes; }
 function saveRead(kind){ return kind === 'journal' ? saveJournal() : saveNotes(); }
 function renderRead(kind){ return kind === 'journal' ? renderJournal() : renderNotes(); }
@@ -2298,7 +2293,7 @@ function toggleReadDone(kind, id){
   if(it.completed && !it.completedAt) it.completedAt = new Date().toISOString();
   if(it.completed && !it.pointsAwarded){
     const pts = readPointsOf(it);
-    it.pointsAwarded = pts || true;          // remember what was paid
+    it.pointsAwarded = pts;                  // remember exactly what was paid
     if(pts > 0){
       addPoints(pts, 'อ่านจบ: ' + it.title, 'notebook');
       pushNotification('points', '+' + fmtPoints(pts) + ' แต้ม', 'อ่านจบ: ' + it.title, {type:kind, id:it.id});
@@ -2309,26 +2304,10 @@ function toggleReadDone(kind, id){
   renderRead(kind);
   renderHome();
 }
-/* Changing the value after it has already paid settles the difference, so
-   the ledger keeps matching what the item says it is worth. */
-function rebalanceReadPoints(it, newPoints, label){
-  const paid = paidReadPoints(it);
-  if(!paid) return true;
-  const diff = newPoints - paid;
-  if(!diff) return true;
-  if(diff > 0) addPoints(diff, 'แก้ไข: ' + label, 'notebook');
-  else takeBackPoints(-diff, 'แก้ไข: ' + label, 'notebook');
-  it.pointsAwarded = newPoints || true;
-  return true;
-}
-/* Deleting something that already paid takes the points back, so a note
-   cannot be read, deleted and read again for more. */
-function reclaimReadPoints(it, label){
-  const paid = paidReadPoints(it);
-  if(!paid) return true;
-  takeBackPoints(paid, 'ลบ: ' + label, 'notebook');
-  return true;
-}
+/* Points that have been paid out are yours to keep. Changing what an item
+   is worth applies to the next time it pays, and deleting it does not take
+   anything back — you did the reading, and tidying the shelf afterwards is
+   not undoing it. Only an explicit ยกเลิก reverses a payout. */
 function toggleNoteCompleted(id){ toggleReadDone('lesson', id); }
 
 /* ---- Flashcard review (vocab notes) ---- */
@@ -2389,15 +2368,12 @@ function confirmDeleteNote(id, btnEl){
   const idx = notes.findIndex(n=>n.id===id);
   if(idx===-1) return;
   const removed = notes[idx];
-  const paid = paidReadPoints(removed);
-  if(!reclaimReadPoints(removed, removed.title)) return;
   notes.splice(idx,1);
   saveNotes();
   notesState = {mode:'list'};
   renderNotes(); renderHome();
-  showToast('ลบบทเรียนแล้ว' + (paid ? ' -' + fmtPoints(paid) + ' แต้ม' : ''), ()=>{
+  showToast('ลบบทเรียนแล้ว', ()=>{
     notes.splice(idx,0,removed);
-    if(paid) addPoints(paid, 'กู้คืน: ' + removed.title, 'notebook');
     saveNotes();
     notesState = {mode:'detail', id};
     renderNotes(); renderHome();
@@ -2741,7 +2717,6 @@ function saveJournalForm(){
   let savedId;
   if(editingJournalId){
     const j = journal.find(x=>x.id===editingJournalId);
-    if(!rebalanceReadPoints(j, points, title)) return;
     Object.assign(j, { title, content:draftJournal.content, tags, points, updatedAt:new Date().toISOString() });
     savedId = editingJournalId;
   }else{
@@ -2765,15 +2740,12 @@ function confirmDeleteJournal(id, btnEl){
   const idx = journal.findIndex(j=>j.id===id);
   if(idx===-1) return;
   const removed = journal[idx];
-  const paid = paidReadPoints(removed);
-  if(!reclaimReadPoints(removed, removed.title)) return;
   journal.splice(idx,1);
   saveJournal();
   journalState = {mode:'list'};
   renderJournal(); renderHome();
-  showToast('ลบโน้ตแล้ว' + (paid ? ' -' + fmtPoints(paid) + ' แต้ม' : ''), ()=>{
+  showToast('ลบโน้ตแล้ว', ()=>{
     journal.splice(idx,0,removed);
-    if(paid) addPoints(paid, 'กู้คืน: ' + removed.title, 'notebook');
     saveJournal();
     journalState = {mode:'detail', id};
     renderJournal(); renderHome();
@@ -2840,6 +2812,17 @@ function doneDatesOf(a){
   return a.date ? [a.date] : [];
 }
 function activityDone(a){ return doneDatesOf(a).length > 0; }
+/* What each of those rounds paid out, in the same order. Rounds finished
+   before the amounts were written down are worth whatever the task says
+   today, which is what they were worth back then too. */
+function donePointsOf(a){
+  const dates = doneDatesOf(a);
+  const paid = Array.isArray(a && a.donePoints) ? a.donePoints : [];
+  return dates.map((_, i) => {
+    const v = paid[i];
+    return v == null ? Math.max(0, Math.round(Number(a.points) || 0)) : Math.max(0, Math.round(Number(v) || 0));
+  });
+}
 function addInterval(dateStr, repeat){
   const f = REPEATS.find(x => x.key === repeat);
   if(!f || (!f.days && !f.months)) return dateStr;
@@ -2872,6 +2855,7 @@ function markActivityDone(id){
   if(!isRoutine(a) && done.length){ showToast('ภารกิจนี้ทำเสร็จแล้ว'); return; }
   if(done.includes(today)){ showToast('วันนี้บันทึกไปแล้ว'); return; }
   a.doneDates = [...done, today];
+  a.donePoints = [...donePointsOf(a).slice(0, done.length), a.points];
   addPoints(a.points, a.title, 'notebook');
   pushNotification('points', '+' + fmtPoints(a.points) + ' แต้ม',
     a.title + (isRoutine(a) ? ' · ' + repeatLabel(a.repeat) : ''), {type:'activity'});
@@ -2879,17 +2863,22 @@ function markActivityDone(id){
   renderNotebook(); renderHome();
   showToast('ทำเสร็จแล้ว +' + fmtPoints(a.points) + ' แต้ม');
 }
-/* Ticked it by mistake: take the last round back. */
+/* Ticked it by mistake: take the last round back. This is the only thing
+   that reverses a payout, and it is asked for by hand — so it takes back
+   exactly what that round paid, not what the task is worth now. */
 function undoActivityDone(id){
   const a = wallet.activities.find(x=>x.id===id);
   if(!a) return;
   const done = doneDatesOf(a);
   if(!done.length) return;
-  takeBackPoints(a.points, 'ยกเลิก: ' + a.title, 'notebook');
+  const paid = donePointsOf(a);
+  const back = paid[paid.length - 1] || 0;
+  takeBackPoints(back, 'ยกเลิก: ' + a.title, 'notebook');
   a.doneDates = done.slice(0, -1);
+  a.donePoints = paid.slice(0, -1);
   saveWallet();
   renderNotebook(); renderHome();
-  showToast('ยกเลิกแล้ว -' + fmtPoints(a.points) + ' แต้ม' + oweNote());
+  showToast('ยกเลิกแล้ว -' + fmtPoints(back) + ' แต้ม' + oweNote());
 }
 function todayInputValue(){
   const d = new Date(), p = n => String(n).padStart(2,'0');
@@ -2924,14 +2913,11 @@ function saveActivityForm(){
   if(!points){ showToast('ใส่คะแนนที่ได้ให้มากกว่า 0'); return; }
 
   if(editingActivityId){
-    // Editing re-balances by the difference, times however many rounds this
-    // one has already paid out, so the ledger stays truthful. A task not yet
-    // done has paid nothing, so changing its value settles nothing.
+    // Changing what a task is worth applies from the next round on. The
+    // rounds already finished keep what they paid — they were done at the
+    // old price, and re-pricing the past is how points go missing.
     const a = wallet.activities.find(x=>x.id===editingActivityId);
-    const rounds = doneDatesOf(a).length;
-    const diff = (points - a.points) * rounds;
-    if(diff > 0) addPoints(diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
-    else if(diff < 0) takeBackPoints(-diff, 'แก้ไขกิจกรรม: ' + title, 'notebook');
+    a.donePoints = donePointsOf(a);          // pin the old rounds before the price moves
     Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date, repeat:draftActivity.repeat||'none' });
     saveWallet();
     showToast('แก้ไขกิจกรรมแล้ว');
@@ -2956,15 +2942,14 @@ function confirmDeleteActivity(id, btnEl){
   }
   const idx = wallet.activities.findIndex(a=>a.id===id);
   if(idx===-1) return;
-  const a = wallet.activities[idx];
-  const owed = a.points * doneDatesOf(a).length;          // every round it paid out
-  takeBackPoints(owed, 'ลบกิจกรรม: ' + a.title, 'notebook');
+  // Deleting is about the future: the task is gone from the list, and the
+  // points it already paid stay earned. Use ยกเลิกครั้งล่าสุด to undo a round.
   wallet.activities.splice(idx,1);
   saveWallet();
   notebookFormSnapshot = null; editingActivityId = null;
   notebookState = {mode:'list'};
   renderNotebook(); renderHome();
-  showToast('ลบกิจกรรมแล้ว' + (owed ? ' -' + fmtPoints(owed) + ' แต้ม' : '') + oweNote());
+  showToast('ลบภารกิจแล้ว · แต้มที่ได้ไปแล้วยังอยู่ครบ');
 }
 
 function balanceCardHtml(sub){
@@ -2994,6 +2979,7 @@ function renderNotebookForm(){
       <div class="field">
         <label>คะแนนที่ได้</label>
         <input type="number" min="1" step="1" inputmode="numeric" value="${escapeHtml(String(draftActivity.points))}" oninput="draftActivity.points=this.value">
+        ${editingActivityId ? '<p class="field-hint">แก้ตัวเลขนี้ มีผลกับรอบต่อไป · รอบที่ทำไปแล้วเก็บแต้มเดิมไว้</p>' : ''}
       </div>
       <div class="field">
         <label>วันที่</label>
@@ -3013,12 +2999,15 @@ function renderNotebookForm(){
     </div>
     ${editingActivityId ? (()=>{
       const a = wallet.activities.find(x=>x.id===editingActivityId);
-      const rounds = a ? doneDatesOf(a).length : 0;
+      const paid = a ? donePointsOf(a) : [];
+      const rounds = paid.length;
+      const back = rounds ? paid[rounds-1] : 0;
       return `
       <div class="danger-zone">
         ${rounds ? `
-          <p class="field-hint">ทำมาแล้ว ${fmtPoints(rounds)} ครั้ง · กดยกเลิกถ้าบันทึกผิด แต้มจะถูกหักคืน</p>
-          <button class="btn btn-ghost btn-sm" onclick="undoActivityDone('${editingActivityId}')">ยกเลิกครั้งล่าสุด -${fmtPoints(a.points)}</button>` : ''}
+          <p class="field-hint">ทำมาแล้ว ${fmtPoints(rounds)} ครั้ง · กดยกเลิกถ้าบันทึกผิด แต้มรอบนั้นจะถูกหักคืน</p>
+          <button class="btn btn-ghost btn-sm" onclick="undoActivityDone('${editingActivityId}')">ยกเลิกครั้งล่าสุด -${fmtPoints(back)}</button>` : ''}
+        <p class="field-hint">ลบแล้วแต้มที่ได้ไปแล้วยังอยู่ครบ ไม่โดนหักคืน</p>
         <button class="btn btn-danger btn-sm" onclick="confirmDeleteActivity('${editingActivityId}', this)">ลบภารกิจนี้</button>
       </div>`;
     })() : ''}`;
