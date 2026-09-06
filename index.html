@@ -298,6 +298,11 @@
   }
   .points-badge.plus{ background:rgba(63,107,79,.16); color:var(--green-check); }
   .kind-chip.repeat{ border-color:var(--highlighter); color:var(--highlighter); }
+  .kind-chip.clock{ font-family:var(--font-mono); letter-spacing:.02em; }
+  .off-hours{margin-top:22px; padding-top:14px; border-top:1.5px dashed var(--paper-line);}
+  .time-range{display:flex; align-items:center; gap:10px; margin-top:8px;}
+  .time-range input{flex:1; min-width:0;}
+  .time-range span{color:var(--ink-soft); font-size:13px;}
   .kind-chip.hot{ border-color:var(--red-pen); color:var(--red-pen); font-weight:700; }
   .card.is-locked{ opacity:.6; }
   .card.is-done{ opacity:.62; }
@@ -651,7 +656,7 @@
     .field input[type=text], .field textarea, .field select,
     .vocab-block input[type=text],
     .opt-row input[type=text],
-    .cash-row input, .rate-cell input, .sched-extra input{
+    .cash-row input, .rate-cell input, .sched-extra input, .time-range input{
       font-size:16px;
     }
   }
@@ -818,6 +823,8 @@ let notebookState = { mode:'list' };
 let marketState = { mode:'list' };
 let marketSection = 'shop';           // 'shop' = the shop (and its manage screen), 'bag' = what you already bought
 let bagHistoryOpen = false;           // the bag's folded-away list of things already used
+let offHoursOpen = false;             // the notebook's folded-away tasks whose hour has not come
+let windowWatch = null, lastWindowMap = '';   // keeps the list honest as the clock moves
 let draftActivity = null, editingActivityId = null;
 let draftItem = null, editingItemId = null;
 let notebookFormSnapshot = null, marketFormSnapshot = null;
@@ -1340,6 +1347,7 @@ function startApp(){
   maybeDailyNudge();
   renderAll();
   startOutboxWatch();
+  startWindowWatch();
   requestAnimationFrame(updateTabIndicator);
   if(document.fonts && document.fonts.ready){ document.fonts.ready.then(updateTabIndicator); }
   historyReady = true;
@@ -1897,7 +1905,8 @@ function eventsByDay(){
     wallet.activities.forEach(a => {
       doneDatesOf(a).forEach(d => put(d, { kind:'activity', title:a.title, meta:`+${fmtPoints(a.points)} แต้ม · ${kindLabel(a.kind)}` }));
       const due = nextDueDate(a);
-      if(due) put(due, { kind:'due', title:'ถึงรอบ: ' + a.title, meta:repeatLabel(a.repeat) });
+      if(due) put(due, { kind:'due', title:'ถึงรอบ: ' + a.title,
+        meta: repeatLabel(a.repeat) + (windowLabel(a) ? ' · ' + windowLabel(a) : '') });
     });
     wallet.redemptions.forEach(r => put(isoToDayKey(r.redeemedAt), { kind:'market', title:'แลก ' + r.name, meta:`-${fmtPoints(r.price)} แต้ม` }));
   }
@@ -2803,6 +2812,31 @@ const REPEATS = [
 ];
 function repeatLabel(k){ const f = REPEATS.find(x=>x.key===k); return f ? f.label : 'ครั้งเดียว'; }
 function isRoutine(a){ return !!(a && a.repeat && a.repeat !== 'none'); }
+/* A task can be fenced to a stretch of the day: it turns up when the window
+   opens and is gone once it shuts, the same hours every day. Both ends blank
+   — which is every task saved before this — means all day, as it always was. */
+function timeWindowOf(a){
+  const t = v => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v||'')) ? String(v) : '';
+  const start = t(a && a.startTime), end = t(a && a.endTime);
+  return (start && end && start !== end) ? { start, end } : null;
+}
+function nowHM(when){
+  const d = when || new Date(), p = n => String(n).padStart(2,'0');
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+/* A window whose end is earlier than its start runs through midnight —
+   22:00–02:00 is one stretch of night, not an empty one. */
+function inTimeWindow(a, hm){
+  const w = timeWindowOf(a);
+  if(!w) return true;
+  const now = hm || nowHM();
+  return w.start <= w.end ? (now >= w.start && now < w.end)
+                          : (now >= w.start || now < w.end);
+}
+function windowLabel(a){
+  const w = timeWindowOf(a);
+  return w ? w.start + '–' + w.end : '';
+}
 /* Every day this task was actually done. An empty list means "not yet" —
    only a record saved before tasks had a done list falls back to its date,
    because back then creating one paid out on the spot. */
@@ -2852,6 +2886,7 @@ function markActivityDone(id){
   if(!a) return;
   const today = todayInputValue();
   const done = doneDatesOf(a);
+  if(!inTimeWindow(a)){ showToast('ภารกิจนี้ทำได้ช่วง ' + windowLabel(a) + ' เท่านั้น'); return; }
   if(!isRoutine(a) && done.length){ showToast('ภารกิจนี้ทำเสร็จแล้ว'); return; }
   if(done.includes(today)){ showToast('วันนี้บันทึกไปแล้ว'); return; }
   a.doneDates = [...done, today];
@@ -2884,7 +2919,7 @@ function todayInputValue(){
   const d = new Date(), p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
 }
-function newDraftActivity(){ return { title:'', kind:'read', points:10, date:todayInputValue(), repeat:'none' }; }
+function newDraftActivity(){ return { title:'', kind:'read', points:10, date:todayInputValue(), repeat:'none', startTime:'', endTime:'' }; }
 
 function openNewActivityForm(){
   draftActivity = newDraftActivity();
@@ -2894,7 +2929,8 @@ function openNewActivityForm(){
 }
 function openEditActivityForm(id){
   const a = wallet.activities.find(x=>x.id===id); if(!a) return;
-  draftActivity = { title:a.title, kind:a.kind||'other', points:a.points, date:a.date, repeat:a.repeat||'none' };
+  draftActivity = { title:a.title, kind:a.kind||'other', points:a.points, date:a.date, repeat:a.repeat||'none',
+                    startTime:a.startTime||'', endTime:a.endTime||'' };
   editingActivityId = id; notebookState = {mode:'form'};
   notebookFormSnapshot = JSON.stringify(draftActivity);
   renderNotebook();
@@ -2905,12 +2941,28 @@ function cancelActivityForm(){
 }
 function setDraftActivityKind(k){ draftActivity.kind = k; renderNotebookForm(); }
 function setDraftActivityRepeat(k){ draftActivity.repeat = k; renderNotebookForm(); }
+/* Switching to ทั้งวัน clears the hours rather than hiding them, so what the
+   form shows and what gets saved never disagree. */
+function setDraftActivityWindow(mode){
+  if(mode === 'window'){
+    if(!draftActivity.startTime) draftActivity.startTime = '08:00';
+    if(!draftActivity.endTime)   draftActivity.endTime   = '10:00';
+  }else{
+    draftActivity.startTime = ''; draftActivity.endTime = '';
+  }
+  renderNotebookForm();
+}
+function setDraftActivityTime(which, v){ draftActivity[which] = v; renderNotebookForm(); }
 
 function saveActivityForm(){
   const title = (draftActivity.title||'').trim();
   if(!title){ showToast('ใส่ชื่อภารกิจก่อนบันทึก'); return; }
   const points = Math.max(0, Math.round(Number(draftActivity.points) || 0));
   if(!points){ showToast('ใส่คะแนนที่ได้ให้มากกว่า 0'); return; }
+  const wantsWindow = !!(draftActivity.startTime || draftActivity.endTime);
+  const win = timeWindowOf(draftActivity);
+  if(wantsWindow && !win){ showToast('ใส่เวลาเริ่มและเวลาจบให้ครบ และอย่าให้ตรงกัน'); return; }
+  const startTime = win ? win.start : '', endTime = win ? win.end : '';
 
   if(editingActivityId){
     // Changing what a task is worth applies from the next round on. The
@@ -2918,15 +2970,17 @@ function saveActivityForm(){
     // old price, and re-pricing the past is how points go missing.
     const a = wallet.activities.find(x=>x.id===editingActivityId);
     a.donePoints = donePointsOf(a);          // pin the old rounds before the price moves
-    Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date, repeat:draftActivity.repeat||'none' });
+    Object.assign(a, { title, kind:draftActivity.kind, points, date:draftActivity.date,
+                       repeat:draftActivity.repeat||'none', startTime, endTime });
     saveWallet();
     showToast('แก้ไขกิจกรรมแล้ว');
   }else{
     // Setting a task up earns nothing — the points are for doing it.
     wallet.activities.push({ id:uid(), title, kind:draftActivity.kind, points, date:draftActivity.date,
-      repeat:draftActivity.repeat||'none', doneDates:[], createdAt:new Date().toISOString() });
+      repeat:draftActivity.repeat||'none', startTime, endTime, doneDates:[], createdAt:new Date().toISOString() });
     saveWallet();
-    showToast('ตั้งภารกิจแล้ว · กด "ทำเสร็จแล้ว" เมื่อทำจริงเพื่อรับ ' + fmtPoints(points) + ' แต้ม');
+    showToast(win ? 'ตั้งภารกิจแล้ว · จะโผล่มาช่วง ' + win.start + '–' + win.end + ' ของทุกวัน'
+                  : 'ตั้งภารกิจแล้ว · กด "ทำเสร็จแล้ว" เมื่อทำจริงเพื่อรับ ' + fmtPoints(points) + ' แต้ม');
   }
   notebookFormSnapshot = null; editingActivityId = null;
   notebookState = {mode:'list'};
@@ -2986,6 +3040,23 @@ function renderNotebookForm(){
         <input type="date" value="${escapeHtml(draftActivity.date)}" oninput="draftActivity.date=this.value">
       </div>
       <div class="field">
+        <label>ช่วงเวลาในแต่ละวัน</label>
+        <select id="activity-window-select" onchange="setDraftActivityWindow(this.value)">
+          <option value="allday" ${timeWindowOf(draftActivity) ? '' : 'selected'}>ทั้งวัน</option>
+          <option value="window" ${timeWindowOf(draftActivity) ? 'selected' : ''}>เฉพาะช่วงเวลาที่กำหนด</option>
+        </select>
+        ${(draftActivity.startTime || draftActivity.endTime) ? `
+          <div class="time-range">
+            <input type="time" id="activity-start-input" value="${escapeHtml(draftActivity.startTime)}" onchange="setDraftActivityTime('startTime', this.value)">
+            <span>ถึง</span>
+            <input type="time" id="activity-end-input" value="${escapeHtml(draftActivity.endTime)}" onchange="setDraftActivityTime('endTime', this.value)">
+          </div>
+          <p class="field-hint">${timeWindowOf(draftActivity)
+            ? 'ภารกิจจะโผล่มาตอน ' + escapeHtml(draftActivity.startTime) + ' และหายไปตอน ' + escapeHtml(draftActivity.endTime) + ' ของทุกวัน'
+              + (draftActivity.startTime > draftActivity.endTime ? ' (ข้ามเที่ยงคืน)' : '')
+            : 'ใส่เวลาเริ่มและเวลาจบให้ครบ และอย่าให้ตรงกัน'}</p>` : ''}
+      </div>
+      <div class="field">
         <label>ทำซ้ำ</label>
         <select id="activity-repeat-select" onchange="setDraftActivityRepeat(this.value)">
           ${REPEATS.map(r=>`<option value="${r.key}" ${(draftActivity.repeat||'none')===r.key?'selected':''}>${r.label}</option>`).join('')}
@@ -3021,11 +3092,16 @@ function renderNotebookImpl(){
   if(notebookState.mode === 'form'){ renderNotebookForm(); return; }
 
   // Still to do first, overdue at the very top; finished ones sink.
-  const acts = [...wallet.activities].sort((a,b)=>
+  const sorted = [...wallet.activities].sort((a,b)=>
     (isDueNow(b)?1:0) - (isDueNow(a)?1:0)
     || (nextDueDate(b)?1:0) - (nextDueDate(a)?1:0)
     || String(b.date).localeCompare(String(a.date))
     || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  // Anything whose hour has not come is off the list entirely — that is the
+  // point of setting one — but still reachable, folded away, so it can be
+  // edited or called off without waiting for the clock.
+  const acts    = sorted.filter(a => inTimeWindow(a));
+  const waiting = sorted.filter(a => !inTimeWindow(a));
 
   // The running balance lives on the home tab only — this page is the log.
   el.innerHTML = `
@@ -3033,12 +3109,16 @@ function renderNotebookImpl(){
       <h2>ภารกิจ</h2>
       <button class="btn btn-primary btn-sm" onclick="openNewActivityForm()">+ ตั้งภารกิจ</button>
     </div>
-    ${acts.length===0 ? `
+    ${acts.length===0 ? (waiting.length ? `
+      <div class="empty">
+        <div class="doodle">🕒</div>
+        <p>ตอนนี้ยังไม่ถึงเวลาของภารกิจที่ตั้งไว้ พอถึงช่วงเวลาแล้วจะโผล่มาเอง</p>
+      </div>` : `
       <div class="empty">
         <div class="doodle">📓</div>
         <p>ยังไม่มีภารกิจ ตั้งสิ่งที่จะทำไว้ แล้วกดว่าทำเสร็จเพื่อรับแต้มไว้ใช้ในหน้ามาร์เก็ต</p>
         <button class="btn btn-primary" onclick="openNewActivityForm()">+ ตั้งภารกิจแรก</button>
-      </div>` : `
+      </div>`) : `
       <div class="cards">
         ${acts.map(a=>{
           const routine = isRoutine(a);
@@ -3049,10 +3129,11 @@ function renderNotebookImpl(){
             ? `ทำมาแล้ว ${rounds} ครั้ง · ${isDueNow(a) ? 'ครบกำหนดแล้ว' : 'รอบถัดไป ' + escapeHtml(due||'')}`
             : done ? `ทำเสร็จแล้ว ${escapeHtml(doneDatesOf(a)[0]||'')}`
                    : `กำหนด ${escapeHtml(a.date||'')}${isDueNow(a) ? ' · ถึงกำหนดแล้ว' : ''}`;
+          const win = windowLabel(a);
           return `
           <div class="card ${!routine && done ? 'is-done' : ''}">
             <div class="card-top">
-              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span>${routine ? `<span class="kind-chip repeat">${repeatLabel(a.repeat)}</span>` : ''}${!routine && done ? '<span class="check-mark">✓</span>' : ''}</p>
+              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span>${routine ? `<span class="kind-chip repeat">${repeatLabel(a.repeat)}</span>` : ''}${win ? `<span class="kind-chip clock">${escapeHtml(win)}</span>` : ''}${!routine && done ? '<span class="check-mark">✓</span>' : ''}</p>
               <span class="points-badge plus">+${fmtPoints(a.points)}</span>
             </div>
             <p class="card-meta">${meta}</p>
@@ -3063,7 +3144,25 @@ function renderNotebookImpl(){
               <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
             </div>
           </div>`;}).join('')}
-      </div>`}`;
+      </div>`}
+    ${waiting.length ? `
+      <div class="off-hours">
+        <button class="btn btn-ghost btn-sm" onclick="toggleOffHours()">
+          ${offHoursOpen ? 'ซ่อนภารกิจนอกเวลา' : 'ยังไม่ถึงเวลา ' + fmtPoints(waiting.length) + ' ภารกิจ'}
+        </button>
+        ${offHoursOpen ? `<div class="cards" style="margin-top:12px;">${waiting.map(a=>`
+          <div class="card is-locked">
+            <div class="card-top">
+              <p class="card-title">${escapeHtml(a.title)}<span class="kind-chip">${kindLabel(a.kind)}</span><span class="kind-chip clock">${escapeHtml(windowLabel(a))}</span></p>
+              <span class="points-badge plus">+${fmtPoints(a.points)}</span>
+            </div>
+            <p class="card-meta">จะโผล่มาเองตอน ${escapeHtml(timeWindowOf(a).start)} และหายไปตอน ${escapeHtml(timeWindowOf(a).end)}</p>
+            <div class="item-card-foot">
+              <span class="row-actions"></span>
+              <button class="btn btn-ghost btn-sm" onclick="openEditActivityForm('${a.id}')">แก้ไข</button>
+            </div>
+          </div>`).join('')}</div>` : ''}
+      </div>` : ''}`;
 }
 
 /* =========================================================
@@ -3765,6 +3864,30 @@ function manageHtml(){
    and the calendar are counted from, but it is folded away in a history
    you only see if you ask for it. */
 function toggleBagHistory(){ bagHistoryOpen = !bagHistoryOpen; renderMarket(); }
+function toggleOffHours(){ offHoursOpen = !offHoursOpen; renderNotebook(); }
+/* The clock keeps moving whether or not anybody touches the screen, so the
+   list has to keep up: when a window opens or shuts, the card turns up or
+   goes on its own. Only a change redraws, and never over an open form. */
+function windowFingerprint(){
+  return wallet ? wallet.activities.map(a => inTimeWindow(a) ? '1' : '0').join('') : '';
+}
+function windowTick(){
+  const now = windowFingerprint();
+  if(now === lastWindowMap) return false;
+  lastWindowMap = now;
+  // Redrawing the notebook redraws the whole hub, so a half-typed lesson or
+  // quiz would be wiped by the clock. Anything open waits its turn — the
+  // next tick after it closes catches up.
+  const typing = [notebookState, notesState, journalState, quizzesState].some(st => st && st.mode === 'form');
+  if(typing){ lastWindowMap = ''; return false; }
+  renderNotebook();
+  return true;
+}
+function startWindowWatch(){
+  clearInterval(windowWatch);
+  lastWindowMap = windowFingerprint();
+  windowWatch = setInterval(()=> windowTick(), 15000);
+}
 
 function bagHtml(){
   const rows = bagRows();
