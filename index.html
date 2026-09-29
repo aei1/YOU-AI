@@ -687,8 +687,8 @@
       <section id="view-home" class="view"><div class="loading">กำลังโหลดภาพรวม...</div></section>
       <section id="view-hub" class="view hidden">
         <div class="hub-subtabs">
-          <button type="button" class="hub-tab active" data-hub="read" onclick="switchHub('read')">อ่าน</button>
-          <button type="button" class="hub-tab" data-hub="activities" onclick="switchHub('activities')">กิจกรรม</button>
+          <button type="button" class="hub-tab active" data-hub="activities" onclick="switchHub('activities')">กิจกรรม</button>
+          <button type="button" class="hub-tab" data-hub="read" onclick="switchHub('read')">อ่าน</button>
         </div>
         <div id="hub-read">
           <div id="read-list"></div>
@@ -834,7 +834,8 @@ let draftJournal = null, editingJournalId = null;
 let noteFormSnapshot = null, quizFormSnapshot = null, journalFormSnapshot = null;
 let flashState = null;
 let activeTabName = 'home';
-let hubSection = 'read';               // 'read' | 'activities' inside the notes hub
+let hubSection = 'activities';         // 'activities' | 'read' inside the notes hub — tasks are what
+                                       // this tab is opened for, so they are what it opens on
 let historyReady = false, isRestoringHistory = false, lastPushedHistoryKey = null;
 let currentAttempt = null;
 let lastResult = null;
@@ -1658,7 +1659,7 @@ window.addEventListener('popstate', (e)=>{
   if(!e.state) return;
   isRestoringHistory = true;
   activeTabName = e.state.tab || 'home';
-  hubSection = e.state.hubSection || 'read';
+  hubSection = e.state.hubSection || 'activities';
   notesState = e.state.notesState || {mode:'list'};
   quizzesState = e.state.quizzesState || {mode:'list'};
   journalState = e.state.journalState || {mode:'list'};
